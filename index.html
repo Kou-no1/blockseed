@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#176b64">
+  <meta name="description" content="つながらなくても使える、段階的なビジュアルプログラミング学習環境">
+  <title>ブロックのたね</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/blocks.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/levels.css">
+  <link rel="stylesheet" href="css/print.css" media="print">
+</head>
+<body class="level-1">
+  <a class="skip-link" href="#workspace">へんしゅうする ところへ</a>
+  <div id="app" class="app-shell">
+    <header class="toolbar" aria-label="どうぐ">
+      <button id="brand" class="brand" type="button" aria-label="ブロックのたね">
+        <span class="brand__mark" aria-hidden="true">🌱</span>
+        <span class="brand__text">ブロックのたね</span>
+      </button>
+      <div class="toolbar__primary">
+        <button id="run-btn" class="tool-btn tool-btn--run" type="button"><span aria-hidden="true">▶</span> うごかす</button>
+        <button id="stop-btn" class="tool-btn tool-btn--stop" type="button" disabled><span aria-hidden="true">■</span> とめる</button>
+      </div>
+      <div class="toolbar__group toolbar__speed">
+        <label for="speed-select">はやさ</label>
+        <select id="speed-select">
+          <option value="1">ゆっくり</option>
+          <option value="20" selected>ふつう</option>
+          <option value="200">はやい</option>
+          <option value="9999">いっきに</option>
+        </select>
+      </div>
+      <div class="toolbar__group">
+        <button id="level-btn" class="tool-btn tool-btn--level" type="button">★1 たね</button>
+        <button id="undo-btn" class="icon-btn" type="button" title="もどす" aria-label="もどす" disabled>↶</button>
+        <button id="redo-btn" class="icon-btn" type="button" title="やりなおす" aria-label="やりなおす" disabled>↷</button>
+      </div>
+      <div class="toolbar__group toolbar__more">
+        <button id="save-btn" class="tool-btn" type="button">ほぞん</button>
+        <button id="teacher-btn" class="tool-btn" type="button" hidden>せんせい</button>
+        <button id="tidy-btn" class="icon-btn" type="button" title="つくえを かたづける" aria-label="つくえを かたづける">⌁</button>
+        <button id="help-btn" class="icon-btn" type="button" title="ヘルプ" aria-label="ヘルプ">?</button>
+      </div>
+    </header>
+
+    <nav class="mobile-tabs" aria-label="がめんを きりかえる">
+      <button class="mobile-tab is-active" data-mobile-view="edit" type="button">ブロック</button>
+      <button class="mobile-tab" data-mobile-view="stage" type="button">ステージ</button>
+    </nav>
+
+    <main id="workspace" class="workspace" tabindex="-1">
+      <aside id="palette-panel" class="panel palette-panel" aria-label="ブロック パレット">
+        <div class="panel__heading">
+          <div>
+            <span class="eyebrow">えらんで タップ</span>
+            <h1>ブロック</h1>
+          </div>
+          <button id="palette-search-toggle" class="icon-btn palette-search-toggle" type="button" aria-label="ブロックを さがす">⌕</button>
+        </div>
+        <label class="search-field" hidden>
+          <span class="sr-only">ブロックを さがす</span>
+          <input id="palette-search" type="search" placeholder="ブロックを さがす">
+        </label>
+        <div id="category-tabs" class="category-tabs" role="tablist" aria-label="ブロックの しゅるい"></div>
+        <div id="palette" class="palette" aria-live="polite"></div>
+      </aside>
+
+      <section id="editor-panel" class="panel editor-panel" aria-label="スクリプト へんしゅう">
+        <div class="panel__heading editor-heading">
+          <div>
+            <span class="eyebrow">ならべて つくる</span>
+            <h2 id="project-name" contenteditable="true" spellcheck="false">はじめての さくひん</h2>
+          </div>
+          <div class="edit-actions" aria-label="ブロックの そうさ">
+            <button id="move-up-btn" type="button" aria-label="うえへ" disabled>↑</button>
+            <button id="move-down-btn" type="button" aria-label="したへ" disabled>↓</button>
+            <button id="delete-btn" type="button" aria-label="けす" disabled>×</button>
+          </div>
+        </div>
+        <div id="script-canvas" class="script-canvas" tabindex="0" aria-label="ブロックを ならべる ところ">
+          <div id="scripts" class="scripts"></div>
+          <div id="drop-hint" class="empty-hint" hidden>
+            <span aria-hidden="true">←</span>
+            ブロックを タップすると ここに はいるよ
+          </div>
+        </div>
+        <div id="insert-mode" class="insert-mode" hidden>
+          <span>つぎの ブロック：</span>
+          <button type="button" data-insert="inside">なかに いれる</button>
+          <button type="button" data-insert="after">したに つける</button>
+        </div>
+        <section id="code-panel" class="code-panel" hidden aria-label="JavaScript コード">
+          <div class="code-panel__heading">
+            <strong>JavaScript</strong>
+            <div>
+              <button id="refresh-code-btn" type="button">ブロック → JS</button>
+              <button id="apply-code-btn" type="button">JS → ブロック</button>
+            </div>
+          </div>
+          <textarea id="code-editor" spellcheck="false" aria-label="JavaScript コード"></textarea>
+          <output id="code-message" class="code-message" aria-live="polite"></output>
+        </section>
+      </section>
+
+      <section id="stage-panel" class="panel stage-panel" aria-label="ステージ">
+        <div class="stage-heading">
+          <div class="stage-tabs" role="tablist" aria-label="ステージを えらぶ">
+            <button class="stage-tab is-active" data-stage="turtle" type="button" role="tab" aria-selected="true">△ かめ</button>
+            <button class="stage-tab" data-stage="sprite" type="button" role="tab" aria-selected="false">● キャラ</button>
+            <button class="stage-tab" data-stage="device" type="button" role="tab" aria-selected="false">◉ そうち</button>
+          </div>
+          <div class="stage-tools">
+            <button id="grid-btn" class="icon-btn" type="button" aria-pressed="false" title="グリッド">#</button>
+            <button id="export-image-btn" class="icon-btn" type="button" title="えを ほぞん" aria-label="えを ほぞん">⇩</button>
+          </div>
+        </div>
+        <div id="mission-card" class="mission-card">
+          <div class="mission-card__icon" aria-hidden="true">◎</div>
+          <div class="mission-card__copy">
+            <span class="mission-card__kicker">きょうの ミッション</span>
+            <strong id="mission-title">しかくを かこう</strong>
+            <span id="mission-progress">ブロックを うごかしてみよう</span>
+          </div>
+          <button id="missions-btn" type="button">えらぶ</button>
+        </div>
+        <div id="stage" class="stage" aria-live="polite">
+          <div id="turtle-stage" class="stage-view is-active">
+            <canvas id="pen-canvas" width="480" height="360" aria-label="かめが えを かく ところ"></canvas>
+            <canvas id="actor-canvas" width="480" height="360" aria-hidden="true"></canvas>
+          </div>
+          <div id="sprite-stage" class="stage-view">
+            <canvas id="sprite-canvas" width="480" height="360" aria-label="キャラが うごく ところ"></canvas>
+            <div class="sprite-controls" aria-label="キャラの せってい">
+              <button id="sprite-add-btn" type="button">＋ キャラ</button>
+              <label><span class="sr-only">すがた</span><select id="sprite-shape-select">
+                <option value="cat">ねこ</option><option value="robot">ロボット</option><option value="car">くるま</option><option value="ball">ボール</option>
+                <option value="rocket">ロケット</option><option value="bug">むし</option><option value="heart">ハート</option><option value="star">ほし</option>
+              </select></label>
+              <button id="sprite-background-btn" type="button">背景</button>
+            </div>
+          </div>
+          <div id="device-stage" class="stage-view device-stage"></div>
+        </div>
+        <div id="monitors" class="monitors" aria-label="へんすう モニター"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="drag-layer" class="drag-layer" aria-hidden="true"></div>
+  <div id="dialog-root"></div>
+  <section id="print-sheet" class="print-sheet" hidden aria-label="いんさつする ないよう"></section>
+  <input id="file-input" type="file" accept=".bstane,application/json" hidden>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ブロックのたね 自己テスト</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #173536; background: #e4f0ec; }
+    body { max-width: 900px; margin: 0 auto; padding: 24px; }
+    h1 { margin-bottom: 8px; }
+    #summary { padding: 14px; border-radius: 12px; background: #fff; font-weight: 800; }
+    ol { display: grid; gap: 7px; padding-left: 28px; }
+    li { padding: 9px 12px; border-radius: 9px; background: #fff; }
+    .pass { border-left: 6px solid #318443; }
+    .fail { border-left: 6px solid #c53242; background: #fff0f0; }
+    pre { overflow: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>ブロックのたね 自己テスト</h1>
+  <p>外部ライブラリを使わず、作品モデル・履歴・共有・実行・ミッションを確認します。</p>
+  <div id="summary" aria-live="polite">テスト中…</div>
+  <ol id="results"></ol>
+  <script type="module" src="tests.js"></script>
+</body>
+</html>

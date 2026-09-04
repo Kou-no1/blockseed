@@ -1,0 +1,14 @@
+{
+  "name": "ブロックのたね",
+  "short_name": "ブロックのたね",
+  "description": "つながらなくても使える段階的ビジュアルプログラミング学習環境",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#dcece8",
+  "theme_color": "#176b64",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
