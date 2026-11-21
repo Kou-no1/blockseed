@@ -27,7 +27,7 @@ export class Palette {
       button.type = 'button';
       button.className = 'category-tab category-' + category.id;
       button.setAttribute('role', 'tab');
-      button.setAttribute('aria-selected', String(palette.category === category.id));
+      button.setAttribute('aria-selected', String(!palette.query && palette.category === category.id));
       const icon = document.createElement('span');
       icon.className = 'cat-icon';
       icon.setAttribute('aria-hidden', 'true');
@@ -35,7 +35,13 @@ export class Palette {
       const label = document.createElement('span');
       label.textContent = category.label;
       button.append(icon, label);
-      button.addEventListener('click', function () { palette.category = category.id; palette.render(); });
+      button.addEventListener('click', function () {
+        palette.category = category.id;
+        palette.query = '';
+        if (palette.searchElement) palette.searchElement.value = '';
+        palette.render();
+        palette.tabsElement.querySelector('.category-' + category.id)?.focus({ preventScroll: true });
+      });
       palette.tabsElement.appendChild(button);
     });
     this.renderBlocks();
@@ -43,13 +49,14 @@ export class Palette {
 
   renderBlocks() {
     const state = this.options.getState();
-    let definitions = listDefinitions(state.level, state.stage, this.category, state.allowedBlocks);
-    if (this.query) definitions = definitions.filter((definition) => labelToPlain(definition.type, state.level).toLowerCase().indexOf(this.query) >= 0);
+    let definitions = listDefinitions(state.level, state.stage, this.query ? null : this.category, state.allowedBlocks);
+    if (this.query) definitions = definitions.filter(definition => [labelToPlain(definition.type, state.level), labelToPlain(definition.type, 1), definition.type].join(' ').toLowerCase().includes(this.query));
+    this.tabsElement.querySelectorAll('.category-tab').forEach(button => button.setAttribute('aria-selected', String(!this.query && button.classList.contains('category-' + this.category))));
     this.paletteElement.textContent = '';
     const list = document.createElement('div');
     list.className = 'palette-list';
     const options = this.options;
-    if ((this.category === 'data' && state.level >= 2) || (this.category === 'function' && state.level >= 4)) {
+    if (!this.query && ((this.category === 'data' && state.level >= 2) || (this.category === 'function' && state.level >= 4))) {
       const create = document.createElement('button');
       create.type = 'button';
       create.className = 'palette-create';
@@ -72,7 +79,7 @@ export class Palette {
     if (!definitions.length) {
       const empty = document.createElement('p');
       empty.className = 'palette-empty';
-      empty.textContent = 'ここには まだ ブロックが ないよ';
+      empty.textContent = this.query ? 'みつかりません。べつの ことばを 入れてみよう。' : 'ここには まだ ブロックが ないよ';
       list.appendChild(empty);
     }
     this.paletteElement.appendChild(list);

@@ -9,6 +9,9 @@ export class SpriteStage extends Stage {
     this.mouse = { x: 0, y: 0 };
     this.message = '';
     this.costume = 0;
+    this.motion = null;
+    this.source = null;
+    this.overrides = {};
     this.changedAt = performance.now();
     canvas.addEventListener('pointermove', (event) => {
       const rect = canvas.getBoundingClientRect();
@@ -17,10 +20,25 @@ export class SpriteStage extends Stage {
     });
   }
 
-  sprite() { return this.getProject().sprites[0]; }
+  sprite() {
+    const source = this.getProject().sprites[0];
+    if (source !== this.source) {
+      this.cancelPending();
+      this.source = source;
+      this.overrides = {};
+    }
+    return source && Object.assign({}, source, this.overrides);
+  }
+
+  updateSprite(values) {
+    if (!this.sprite()) return;
+    Object.assign(this.overrides, values);
+    this.changedAt = performance.now();
+  }
+
   reset() {
-    const sprite = this.sprite();
-    if (sprite) { sprite.x = 0; sprite.y = 0; sprite.dir = 90; sprite.visible = true; sprite.size = 100; }
+    this.cancelPending();
+    this.overrides = {};
     this.message = '';
     this.costume = 0;
     this.changedAt = performance.now();
@@ -29,21 +47,62 @@ export class SpriteStage extends Stage {
 
   move(distance) {
     const sprite = this.sprite(); if (!sprite) return;
-    const radians = (sprite.dir - 90) * Math.PI / 180;
-    sprite.x = clamp(sprite.x + Math.cos(radians) * distance, -220, 220);
-    sprite.y = clamp(sprite.y + Math.sin(radians) * distance, -160, 160);
-    this.changedAt = performance.now();
+    const radians = sprite.dir * Math.PI / 180;
+    this.goto(sprite.x + Math.sin(radians) * distance, sprite.y + Math.cos(radians) * distance);
   }
-  turn(value) { const sprite = this.sprite(); if (sprite) sprite.dir = ((sprite.dir + value) % 360 + 360) % 360; this.changedAt = performance.now(); }
-  goto(x, y) { const sprite = this.sprite(); if (sprite) { sprite.x = clamp(x, -220, 220); sprite.y = clamp(y, -160, 160); } this.changedAt = performance.now(); }
-  bounce() { const sprite = this.sprite(); if (!sprite) return; if (Math.abs(sprite.x) >= 219 || Math.abs(sprite.y) >= 159) sprite.dir = (360 - sprite.dir) % 360; }
+  turn(value) {
+    const sprite = this.sprite();
+    if (sprite) this.updateSprite({ dir: ((sprite.dir + value) % 360 + 360) % 360 });
+  }
+
+  goto(x, y) {
+    this.cancelPending();
+    this.updateSprite({ x: clamp(x, -220, 220), y: clamp(y, -160, 160) });
+  }
+
+  glide(x, y, seconds) {
+    this.cancelPending();
+    const sprite = this.sprite();
+    if (!sprite || !(seconds > 0)) { this.goto(x, y); return; }
+    return new Promise(resolve => {
+      this.motion = { x: sprite.x, y: sprite.y, targetX: clamp(x, -220, 220), targetY: clamp(y, -160, 160), elapsed: 0, seconds, resolve };
+    });
+  }
+
+  tick(seconds) {
+    const motion = this.motion;
+    if (!motion) return;
+    motion.elapsed += seconds;
+    const progress = Math.min(1, motion.elapsed / motion.seconds);
+    this.updateSprite({
+      x: motion.x + (motion.targetX - motion.x) * progress,
+      y: motion.y + (motion.targetY - motion.y) * progress
+    });
+    if (progress === 1) this.cancelPending();
+  }
+
+  cancelPending() {
+    if (!this.motion) return;
+    this.motion.resolve();
+    this.motion = null;
+  }
+
+  bounce() {
+    const sprite = this.sprite();
+    if (!sprite) return;
+    let dir = sprite.dir;
+    const radians = dir * Math.PI / 180;
+    if (Math.abs(sprite.x) >= 219 && sprite.x * Math.sin(radians) > .001) dir = -dir;
+    if (Math.abs(sprite.y) >= 159 && sprite.y * Math.cos(radians) > .001) dir = 180 - dir;
+    if (dir !== sprite.dir) this.updateSprite({ dir: ((dir % 360) + 360) % 360 });
+  }
   edge() { const sprite = this.sprite(); return Boolean(sprite && (Math.abs(sprite.x) >= 218 || Math.abs(sprite.y) >= 158)); }
   touching(target) {
     const sprite = this.sprite(); if (!sprite) return false;
     if (target === 'edge') return this.edge();
     if (target === 'mouse') return Math.hypot(sprite.x - this.mouse.x, sprite.y - this.mouse.y) <= Math.max(24, sprite.size * .32);
     const other = (this.getProject().sprites || []).find(function (item) { return item.id === target || item.name === target; });
-    return Boolean(other && other !== sprite && Math.hypot(sprite.x - other.x, sprite.y - other.y) <= (sprite.size + other.size) * .28);
+    return Boolean(other && other.id !== sprite.id && Math.hypot(sprite.x - other.x, sprite.y - other.y) <= (sprite.size + other.size) * .28);
   }
 
   drawCharacter(ctx, sprite) {
@@ -99,6 +158,7 @@ export class SpriteStage extends Stage {
     gradient.addColorStop(0, colors[0]); gradient.addColorStop(1, colors[1]);
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, 480, 360);
     const sprites = (this.getProject().sprites || []).slice(0, 8);
+    if (sprites.length) sprites[0] = this.sprite();
     sprites.forEach((sprite) => { if (sprite.visible !== false) this.drawCharacter(ctx, sprite); });
     if (this.message && sprites[0]) {
       const sprite = sprites[0];
@@ -114,11 +174,21 @@ export class SpriteStage extends Stage {
 
   getAPI() {
     return {
-      move: this.move.bind(this), right: this.turn.bind(this), left: (value) => this.turn(-value), goto: this.goto.bind(this), glide: this.goto.bind(this), bounce: this.bounce.bind(this),
-      pointTo: (target) => { const sprite = this.sprite(); if (!sprite) return; const point = target === 'mouse' ? this.mouse : { x: 0, y: 0 }; sprite.dir = Math.atan2(point.y - sprite.y, point.x - sprite.x) * 180 / Math.PI; this.changedAt = performance.now(); },
+      move: this.move.bind(this), right: this.turn.bind(this), left: (value) => this.turn(-value), goto: this.goto.bind(this), glide: this.glide.bind(this), bounce: this.bounce.bind(this),
+      pointTo: (target) => {
+        const sprite = this.sprite();
+        if (!sprite) return;
+        const point = target === 'mouse' ? this.mouse : { x: 0, y: 0 };
+        if (point.x === sprite.x && point.y === sprite.y) return;
+        const degrees = Math.atan2(point.x - sprite.x, point.y - sprite.y) * 180 / Math.PI;
+        this.updateSprite({ dir: (degrees + 360) % 360 });
+      },
       x: () => this.sprite() ? this.sprite().x : 0, y: () => this.sprite() ? this.sprite().y : 0,
-      say: (text) => { this.message = String(text); this.changedAt = performance.now(); }, show: () => { if (this.sprite()) { this.sprite().visible = true; this.changedAt = performance.now(); } }, hide: () => { if (this.sprite()) { this.sprite().visible = false; this.changedAt = performance.now(); } },
-      size: (value) => { if (this.sprite()) { this.sprite().size = clamp(value, 10, 300); this.changedAt = performance.now(); } }, nextCostume: () => { this.costume = this.costume ? 0 : 1; this.changedAt = performance.now(); }, color: (value) => { if (this.sprite()) { this.sprite().color = value; this.changedAt = performance.now(); } },
+      say: (text) => { this.message = String(text); this.changedAt = performance.now(); },
+      show: () => this.updateSprite({ visible: true }), hide: () => this.updateSprite({ visible: false }),
+      size: (value) => this.updateSprite({ size: clamp(value, 10, 300) }),
+      nextCostume: () => { this.costume = this.costume ? 0 : 1; this.changedAt = performance.now(); },
+      color: (value) => this.updateSprite({ color: value }),
       edge: this.edge.bind(this), touching: this.touching.bind(this), mouseX: () => this.mouse.x, mouseY: () => this.mouse.y
     };
   }

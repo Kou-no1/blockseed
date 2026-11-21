@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 TOP_LEVEL = ("index.html", "manifest.webmanifest", "icon.svg", "sw.js")
-DIRECTORIES = ("css", "js")
+DIRECTORIES = ("css", "js", "assets")
 
 
 def build() -> None:

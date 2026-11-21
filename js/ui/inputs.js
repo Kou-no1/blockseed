@@ -16,27 +16,46 @@ function numericStep(value) {
 
 function openNumberPad(value, commit) {
   const old = document.querySelector('.number-pad-backdrop'); if (old) old.remove();
+  const opener = document.activeElement;
   let buffer = String(Number.isFinite(Number(value)) ? value : 0);
+  let replace = true;
   const backdrop = document.createElement('div'); backdrop.className = 'number-pad-backdrop';
   const panel = document.createElement('section'); panel.className = 'number-pad'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', 'すうじを いれる');
   const readout = document.createElement('output'); readout.className = 'number-pad__readout'; readout.textContent = buffer; panel.appendChild(readout);
   const keys = document.createElement('div'); keys.className = 'number-pad__keys';
+  function enterKey(key) {
+    if (key === '⌫') buffer = buffer.slice(0, -1) || '0';
+    else if (key === '−') buffer = buffer.startsWith('-') ? buffer.slice(1) || '0' : '-' + buffer;
+    else if (key === '.') {
+      if (replace) buffer = '0';
+      if (!buffer.includes('.')) buffer += '.';
+    } else if (replace || buffer === '0') buffer = key;
+    else if (buffer.length < 16) buffer += key;
+    replace = false;
+    readout.textContent = buffer;
+  }
   ['7', '8', '9', '4', '5', '6', '1', '2', '3', '−', '0', '.', '⌫'].forEach(function (key) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = key;
-    button.addEventListener('click', function () {
-      if (key === '⌫') buffer = buffer.length > 1 ? buffer.slice(0, -1) : '0';
-      else if (key === '−') buffer = buffer.startsWith('-') ? buffer.slice(1) || '0' : '-' + buffer;
-      else if (key === '.') { if (!buffer.includes('.')) buffer += '.'; }
-      else buffer = buffer === '0' ? key : buffer + key;
-      readout.textContent = buffer;
-    });
+    button.addEventListener('click', function () { enterKey(key); });
     keys.appendChild(button);
   });
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'やめる';
   const done = document.createElement('button'); done.type = 'button'; done.className = 'is-primary'; done.textContent = 'できた';
-  const close = function () { backdrop.remove(); };
+  const close = function () { backdrop.remove(); opener?.focus(); };
   cancel.addEventListener('click', close);
-  done.addEventListener('click', function () { const number = Number(buffer); if (Number.isFinite(number)) commit(number); close(); });
+  done.addEventListener('click', function () { const number = Number(buffer); if (Number.isFinite(number)) { close(); commit(number); } });
+  panel.addEventListener('keydown', function (event) {
+    event.stopPropagation();
+    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    else if (/^[0-9.]$/.test(event.key) || ['-', 'Backspace'].includes(event.key)) {
+      event.preventDefault();
+      enterKey(event.key === 'Backspace' ? '⌫' : event.key === '-' ? '−' : event.key);
+    } else if (event.key === 'Tab') {
+      const first = keys.firstElementChild;
+      if (event.shiftKey && event.target === first) { event.preventDefault(); done.focus(); }
+      else if (!event.shiftKey && event.target === done) { event.preventDefault(); first.focus(); }
+    }
+  });
   backdrop.addEventListener('click', function (event) { if (event.target === backdrop) close(); });
   keys.append(cancel, done); panel.appendChild(keys); backdrop.appendChild(panel); document.body.appendChild(backdrop);
   requestAnimationFrame(function () { const first = keys.querySelector('button'); if (first) first.focus(); });
@@ -45,11 +64,8 @@ function openNumberPad(value, commit) {
 export function createInput(arg, block, options) {
   const wrap = document.createElement('span');
   wrap.className = 'blk-input';
-  wrap.dataset.noDrag = 'true';
   const value = block.fields[arg.name];
   const commit = function (next) { options.onField(block.id, arg.name, next); };
-  wrap.addEventListener('pointerdown', stop);
-  wrap.addEventListener('click', stop);
 
   // A palette item is one large button.  Rendering real form controls inside it
   // creates nested interactive elements and lets a stray tap edit a template
@@ -72,6 +88,12 @@ export function createInput(arg, block, options) {
     return wrap;
   }
 
+  wrap.dataset.noDrag = 'true';
+  wrap.dataset.field = arg.name;
+  if (arg.slot !== false) wrap.dataset.slot = arg.name;
+  wrap.addEventListener('pointerdown', stop);
+  wrap.addEventListener('click', stop);
+
   if (arg.type === 'number' && options.level <= 2) {
     const minus = document.createElement('button');
     minus.type = 'button';
@@ -81,7 +103,10 @@ export function createInput(arg, block, options) {
     const display = document.createElement('span');
     display.className = 'blk-number';
     display.textContent = String(value);
-    display.tabIndex = 0;
+    if (options.level === 2 || arg.chips?.length) {
+      display.tabIndex = 0;
+      display.setAttribute('role', 'button');
+    }
     const plus = document.createElement('button');
     plus.type = 'button';
     plus.className = 'blk-step';
@@ -122,7 +147,7 @@ export function createInput(arg, block, options) {
     input.className = 'blk-color';
     input.value = /^#[0-9a-f]{6}$/i.test(value) ? value : '#1672b8';
     input.setAttribute('aria-label', 'いろ');
-    input.addEventListener('input', function () { commit(input.value); });
+    input.addEventListener('change', function () { commit(input.value); });
     wrap.appendChild(input);
     return wrap;
   }
@@ -132,7 +157,7 @@ export function createInput(arg, block, options) {
     const select = document.createElement('select');
     select.setAttribute('aria-label', arg.name);
     const items = arg.type === 'bool' ? [{ v: true, label: 'はい' }, { v: false, label: 'いいえ' }] : choices;
-    if (!items.length) items.push({ v: value || '', label: value || 'なし' });
+    if (!items.length) items.push({ v: value || '', label: 'まだありません' });
     items.forEach(function (item) {
       const option = document.createElement('option');
       option.value = String(item.v);

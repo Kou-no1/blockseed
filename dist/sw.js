@@ -1,8 +1,9 @@
-const CACHE = 'blockseed-v1.0.2';
+const CACHE = 'blockseed-expeditions-v2.0.0';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './icon.svg', './sw.js',
-  './css/base.css', './css/blocks.css', './css/layout.css', './css/levels.css', './css/print.css',
-  './js/main.js',
+  './css/base.css', './css/blocks.css', './css/layout.css', './css/levels.css', './css/expedition.css', './css/print.css',
+  './js/main.js', './js/expedition.js',
+  './assets/patagonia.webp', './assets/namib.webp', './assets/yakushima.webp',
   './js/core/events.js', './js/core/errors.js', './js/core/project.js', './js/core/history.js', './js/core/store.js', './js/core/share.js',
   './js/blocks/defs.helpers.js', './js/blocks/defs.event.js', './js/blocks/defs.motion.js', './js/blocks/defs.looks.js', './js/blocks/defs.sound.js', './js/blocks/defs.control.js', './js/blocks/defs.sensing.js', './js/blocks/defs.device.js', './js/blocks/defs.operators.js', './js/blocks/defs.data.js', './js/blocks/defs.function.js', './js/blocks/registry.js',
   './js/ui/labels.js', './js/ui/dialogs.js', './js/ui/inputs.js', './js/ui/blockview.js', './js/ui/palette.js', './js/ui/tapinsert.js', './js/ui/drag.js', './js/ui/canvas.js', './js/ui/toolbar.js',
@@ -21,13 +22,14 @@ self.addEventListener('activate', function (event) {
 
 self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
-  event.respondWith(caches.match(event.request).then(function (cached) {
+  event.respondWith(caches.open(CACHE).then(async function (cache) {
+    const cached = await cache.match(event.request);
     if (cached) return cached;
-    return fetch(event.request).then(function (response) {
-      if (response && response.ok) {
-        const copy = response.clone(); caches.open(CACHE).then(function (cache) { cache.put(event.request, copy); });
-      }
-      return response;
-    }).catch(function () { return caches.match('./index.html'); });
+    try {
+      return await fetch(event.request);
+    } catch (error) {
+      if (event.request.mode === 'navigate') return await cache.match('./index.html') || Response.error();
+      return Response.error();
+    }
   }));
 });

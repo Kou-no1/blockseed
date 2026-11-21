@@ -25,6 +25,20 @@ export class DialogManager {
     dialog.className = 'dialog-card' + (options.wide ? ' dialog-card--wide' : '');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
+    dialog.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        manager.close(null);
+      } else if (event.key === 'Tab') {
+        const controls = Array.from(dialog.querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]'))
+          .filter(control => !control.disabled && control.getClientRects().length);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && event.target === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && event.target === last) { event.preventDefault(); first?.focus(); }
+      }
+    });
     const title = document.createElement('h2');
     title.textContent = options.title || 'おしらせ';
     title.id = 'dialog-title';

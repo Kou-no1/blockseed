@@ -25,6 +25,18 @@ for name in production:
     if not path.exists() or path.suffix.lower() not in {".html", ".css", ".js", ".webmanifest"}:
         continue
     text = path.read_text(encoding="utf-8")
+    if path.suffix == ".js":
+        dependencies = re.findall(r"""\bfrom\s+['"](\.[^'"]+)['"]""", text)
+    elif path.suffix == ".css":
+        dependencies = re.findall(r"""url\(['"]?(\.[^'")]+)['"]?\)""", text)
+    elif path.suffix == ".html":
+        dependencies = re.findall(r'(?:src|href)="((?:assets/|js/|css/)[^"]+)"', text)
+    else:
+        dependencies = []
+    for dependency in dependencies:
+        asset = (path.parent / dependency).resolve().relative_to(ROOT).as_posix()
+        if asset not in production:
+            errors.append(f"not available offline: {asset} (used in {name})")
     if re.search(r"https?://", text):
         errors.append(f"external URL in {name}")
     if re.search(r"\b(?:alert|prompt)\s*\(", text) or re.search(r"(?<![.\w])confirm\s*\(", text):

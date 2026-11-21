@@ -7,14 +7,21 @@ export class Scheduler {
     this.cursor = 0;
     this.lastFrame = 0;
     this.lastStuckNotice = 0;
+    this.failed = false;
     this.boundFrame = this.frame.bind(this);
   }
 
   addThread(script) {
     if (!script || !script.blocks || !script.blocks.length) return;
     const hat = script.blocks[0];
-    this.threads = this.threads.filter(function (thread) { return thread.hatId !== hat.id; });
-    this.threads.push({ hatId: hat.id, iterator: this.options.interpreter.runBlocks(script.blocks.slice(1), 0), waitUntil: 0, pending: false, nextValue: undefined });
+    const previous = this.threads.find(thread => thread.hatId === hat.id);
+    if (previous) {
+      this.threads.splice(this.threads.indexOf(previous), 1);
+      previous.iterator.return();
+    }
+    const thread = { hatId: hat.id, iterator: this.options.interpreter.runBlocks(script.blocks.slice(1), 0), waitUntil: 0, pending: false, nextValue: undefined };
+    this.threads.push(thread);
+    return thread;
   }
 
   matching(eventType, detail) {
@@ -29,13 +36,16 @@ export class Scheduler {
 
   start(eventType, detail) {
     this.matching(eventType || 'event_start', detail).forEach(this.addThread.bind(this));
-    if (!this.threads.length) { this.options.onDone(); return; }
+    if (!this.threads.length) return false;
     if (!this.running) {
       this.running = true;
       this.lastFrame = performance.now();
+      this.lastStuckNotice = this.lastFrame;
+      this.failed = false;
       this.options.onState(true);
       this.frameId = requestAnimationFrame(this.boundFrame);
     }
+    return true;
   }
 
   trigger(eventType, detail) { this.start(eventType, detail); }
@@ -46,11 +56,22 @@ export class Scheduler {
     else if (action.kind === 'sleep') thread.waitUntil = now + Math.min(600000, Math.max(0, action.ms || 0));
     else if (action.kind === 'promise') {
       thread.pending = true;
-      Promise.resolve(action.promise).then((value) => { thread.nextValue = value; thread.pending = false; }).catch((error) => { thread.pending = false; this.options.onError(error); });
+      Promise.resolve(action.promise).then(value => {
+        if (!this.threads.includes(thread)) return;
+        thread.nextValue = value;
+        thread.pending = false;
+      }, error => {
+        const index = this.threads.indexOf(thread);
+        if (index < 0) return;
+        this.threads.splice(index, 1);
+        thread.iterator.return();
+        this.failed = true;
+        this.options.onError(error);
+      });
     } else if (action.kind === 'broadcast') {
       const matches = this.matching('event_message', action.message);
-      matches.forEach(this.addThread.bind(this));
-      if (action.wait && matches.length) thread.waitForHats = new Set(matches.map(function (script) { return script.blocks[0].id; }));
+      const receivers = matches.map(script => this.addThread(script));
+      if (action.wait && receivers.length) thread.receivers = receivers;
     } else if (action.kind === 'stopAll') this.stop();
   }
 
@@ -63,10 +84,10 @@ export class Scheduler {
     while (this.threads.length && steps < budget && performance.now() - frameStart < 12) {
       if (this.cursor >= this.threads.length) this.cursor = 0;
       const thread = this.threads[this.cursor];
-      if (thread && thread.waitForHats) {
-        const waiting = this.threads.some(function (candidate) { return candidate !== thread && thread.waitForHats.has(candidate.hatId); });
+      if (thread && thread.receivers) {
+        const waiting = thread.receivers.some(receiver => this.threads.includes(receiver));
         if (waiting) { this.cursor += 1; idlePasses += 1; if (idlePasses >= this.threads.length) break; continue; }
-        thread.waitForHats = null;
+        thread.receivers = null;
       }
       if (!thread || thread.pending || thread.waitUntil > now) {
         this.cursor += 1;
@@ -83,6 +104,7 @@ export class Scheduler {
         else { this.handleAction(thread, result.value, now); this.cursor += 1; }
       } catch (error) {
         this.threads.splice(this.cursor, 1);
+        this.failed = true;
         this.options.onError(error);
       }
       if (!this.running) return;
@@ -92,8 +114,10 @@ export class Scheduler {
     this.options.stage.tick(delta);
     this.options.stage.render();
     this.options.onMonitors(this.options.interpreter);
-    const changedAt = Number(this.options.stage.changedAt);
-    if (this.options.onStuck && Number.isFinite(changedAt) && now - changedAt >= 10000 && now - this.lastStuckNotice >= 10000) {
+    const changedAt = Math.max(Number(this.options.stage.changedAt) || 0, Number(this.options.interpreter.changedAt) || 0);
+    const computing = this.threads.some(thread => !thread.pending && thread.waitUntil <= now && !thread.receivers);
+    if (!computing) this.lastStuckNotice = now;
+    if (computing && this.options.onStuck && Number.isFinite(changedAt) && now - changedAt >= 10000 && now - this.lastStuckNotice >= 10000) {
       this.lastStuckNotice = now;
       this.options.onStuck();
     }
@@ -101,7 +125,7 @@ export class Scheduler {
       this.running = false;
       this.options.onHighlight(null);
       this.options.onState(false);
-      this.options.onDone();
+      if (!this.failed) this.options.onDone();
       return;
     }
     this.frameId = requestAnimationFrame(this.boundFrame);

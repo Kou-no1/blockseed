@@ -23,7 +23,7 @@ function appendRubyText(parent, text, rubyEnabled) {
   if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
 }
 
-function plainLabel(definition, block, level) {
+export function plainLabel(definition, block, level) {
   let label = getLabel(definition, level).replace(/([^\s|]+)\|([^\s]+)/g, '$1');
   (definition.args || []).forEach(function (arg, index) {
     const input = block.inputs && block.inputs[arg.name];
@@ -70,6 +70,13 @@ function appendBody(root, block, key, options) {
     body.appendChild(hint);
   } else {
     list.forEach(function (child) { body.appendChild(renderBlock(child, options)); });
+  }
+  if (!options.palette && options.onBody) {
+    body.addEventListener('click', function (event) {
+      if (event.target.closest('.blk') !== root) return;
+      event.stopPropagation();
+      options.onBody(block.id, key);
+    });
   }
   root.appendChild(body);
 }

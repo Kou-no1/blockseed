@@ -18,6 +18,8 @@ export class DeviceStage extends Stage {
     this.autoTime = 0;
     this.records = [];
     this.log = [];
+    this.elapsed = 0;
+    this.lastSample = '';
     this.changedAt = performance.now();
     this.build();
   }
@@ -68,10 +70,31 @@ export class DeviceStage extends Stage {
   }
 
   markChanged() { this.changedAt = performance.now(); }
-  reset() { this.outputs = { led: 0, motor: 0, buzzer: 0, heater: 0 }; this.useSeconds = 0; this.energy = 0; this.autoTime = 0; this.log = []; this.markChanged(); this.render(); }
+  cancelPending() {
+    Object.keys(this.outputs).forEach(name => { this.outputs[name] = 0; });
+    this.markChanged();
+  }
+  clearRecords() {
+    this.records = [];
+    this.log = [];
+    this.lastSample = '';
+    this.render();
+  }
+  reset() {
+    this.outputs = { led: 0, motor: 0, buzzer: 0, heater: 0 };
+    this.useSeconds = 0;
+    this.energy = 0;
+    this.autoTime = 0;
+    this.elapsed = 0;
+    this.log = [];
+    this.lastSample = '';
+    this.markChanged();
+    this.render();
+  }
 
   tick(deltaSeconds) {
     const dt = Math.min(.1, Math.max(0, Number(deltaSeconds) || 0));
+    this.elapsed += dt;
     if (this.auto) {
       this.autoTime += dt;
       const cycle = this.autoTime % 20;
@@ -87,9 +110,27 @@ export class DeviceStage extends Stage {
     this.energy += totalPower * dt;
   }
 
-  snapshotLog() { this.log.push({ time: this.autoTime || this.useSeconds, sensors: Object.assign({}, this.sensors), outputs: Object.assign({}, this.outputs) }); if (this.log.length > 2000) this.log.shift(); }
-  setOutput(name, value) { if (name in this.outputs) { const next = value ? 100 : 0; if (this.outputs[name] !== next) { this.outputs[name] = next; if (name === 'buzzer' && next > 0 && this.audio) this.audio.tone(67, .12, 'square'); this.snapshotLog(); this.markChanged(); } } }
-  setPower(name, value) { if (name in this.outputs) { const next = clamp(value, 0, 100); if (this.outputs[name] !== next) { this.outputs[name] = next; if (name === 'buzzer' && next > 0 && this.audio) this.audio.tone(67, .12, 'square'); this.snapshotLog(); this.markChanged(); } } }
+  snapshotLog() {
+    const signature = Object.values(this.sensors).concat(Object.values(this.outputs)).join(',');
+    if (signature === this.lastSample) return;
+    this.lastSample = signature;
+    this.log.push({ time: this.elapsed, sensors: { ...this.sensors }, outputs: { ...this.outputs } });
+    if (this.log.length > 2000) this.log.shift();
+    if (this.onRecord) this.onRecord();
+  }
+
+  setOutput(name, value) { this.setPower(name, value ? 100 : 0); }
+
+  setPower(name, value) {
+    if (!Object.hasOwn(this.outputs, name)) return;
+    const next = clamp(value, 0, 100);
+    if (this.outputs[name] !== next) {
+      this.outputs[name] = next;
+      if (name === 'buzzer' && next > 0 && this.audio) this.audio.tone(67, .12, 'square');
+      this.markChanged();
+    }
+    this.snapshotLog();
+  }
   sensor(name) { return Number(this.sensors[name]) || 0; }
   sensorOn(name) {
     const value = this.sensor(name);
@@ -126,7 +167,16 @@ export class DeviceStage extends Stage {
     const score = this.root.querySelector('.energy-score'); if (score) score.textContent = '省エネ度 ' + Math.max(0, Math.round(100 - this.energy / 30 * 100)) + '%';
     const fill = this.root.querySelector('.energy-bar span'); if (fill) fill.style.width = Math.min(100, this.energy / 30 * 100) + '%';
     const list = this.root.querySelector('.record-list');
-    if (list) { list.textContent = ''; this.records.slice(-4).forEach(function (entry, index) { const row = document.createElement('span'); row.textContent = 'きろく ' + (index + 1) + '：' + entry.seconds.toFixed(1) + ' 秒'; list.appendChild(row); }); }
+    if (list && list.dataset.count !== String(this.records.length)) {
+      list.dataset.count = String(this.records.length);
+      list.textContent = '';
+      const first = Math.max(0, this.records.length - 4);
+      this.records.slice(first).forEach((entry, index) => {
+        const row = document.createElement('span');
+        row.textContent = 'きろく ' + (first + index + 1) + '：' + entry.seconds.toFixed(1) + ' 秒';
+        list.appendChild(row);
+      });
+    }
   }
 
   getAPI() {

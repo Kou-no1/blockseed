@@ -3,7 +3,7 @@ import { ProjectStore, autosave } from './core/store.js';
 import { History } from './core/history.js';
 import { decodeProject, downloadProject, encodeProject, readProjectFile } from './core/share.js';
 import { friendlyError } from './core/errors.js';
-import { allDefinitions, getDefinition } from './blocks/registry.js';
+import { allDefinitions, getDefinition, listDefinitions } from './blocks/registry.js';
 import { Palette } from './ui/palette.js';
 import { ScriptCanvas } from './ui/canvas.js';
 import { DragController } from './ui/drag.js';
@@ -19,6 +19,7 @@ import { Scheduler } from './runtime/scheduler.js';
 import { jsToBlocks, projectToJS } from './runtime/tojs.js';
 import { getMission, listMissions, missionProjectData, evaluateMission } from './missions/missions.js';
 import { Synth } from './audio/synth.js';
+import { renderLandscape, destinationMenu, showMobileView } from './expedition.js';
 
 const params = new URLSearchParams(location.search);
 const levelFromURL = Number(params.get('level'));
@@ -38,6 +39,7 @@ let scheduler = null;
 let interpreter = null;
 let running = false;
 let successPlayed = false;
+let runCompleted = false;
 let stuckDialogOpen = false;
 
 const turtleStage = new TurtleStage(document.getElementById('pen-canvas'), document.getElementById('actor-canvas'));
@@ -88,6 +90,12 @@ function updateStageTabs() {
 
 function updateToolbar() {
   toolbar.update({ running: running, level: project.level, levelLocked: levelLocked, canUndo: history.canUndo, canRedo: history.canRedo });
+  const status = document.getElementById('run-status');
+  status.textContent = running ? '実行中' : runCompleted ? '実行完了' : '待機中';
+  status.dataset.active = String(running);
+  editor.element.inert = running;
+  document.getElementById('palette-panel').inert = running;
+  editor.updateSelectionControls();
 }
 
 function updateCode(force) {
@@ -103,19 +111,25 @@ function updateCode(force) {
 
 function renderMonitors(runtime) {
   const root = document.getElementById('monitors');
-  root.textContent = '';
+  let index = 0;
   (project.vars || []).forEach(function (item) {
-    if (item.show === false) return;
-    const monitor = document.createElement('span');
-    monitor.className = 'monitor';
+    if (runtime ? runtime.varVisibility.get(item.id) === false : item.show === false) return;
+    let monitor = root.children[index++];
+    if (!monitor) {
+      monitor = document.createElement('span');
+      monitor.className = 'monitor';
+      root.appendChild(monitor);
+    }
     const value = runtime && runtime.vars ? runtime.vars.get(item.id) : item.value;
-    monitor.textContent = item.name + ' = ' + String(value == null ? 0 : value);
-    root.appendChild(monitor);
+    const label = item.name + ' = ' + String(value ?? 0);
+    if (monitor.textContent !== label) monitor.textContent = label;
   });
+  while (root.children.length > index) root.lastElementChild.remove();
 }
 
 function renderAll() {
   renderLevel();
+  turtleStage.setRegion(renderLandscape(project.missionId));
   document.getElementById('project-name').textContent = project.name;
   updateStageTabs();
   editor.render();
@@ -128,15 +142,18 @@ function renderAll() {
 }
 
 function recordChange(message) {
+  discardExecution();
   history.record(project);
   updateToolbar();
   updateCode(false);
   renderMonitors(interpreter);
+  updateMissionProgress();
   if (message) toast(message);
 }
 
 function setProject(next, preserveMission) {
   stopRun(false);
+  deviceStage.clearRecords();
   project = normalizeProject(next);
   if (levelFromURL && levelLocked) project.level = Math.max(1, Math.min(5, levelFromURL));
   history.reset(project);
@@ -144,8 +161,9 @@ function setProject(next, preserveMission) {
   editor.runningId = null;
   interpreter = null;
   if (!preserveMission) {
-    currentMission = getMission('intro_square');
-    allowedBlocks = null;
+    customMission = null;
+    currentMission = getMission(project.missionId || 'intro_square');
+    allowedBlocks = project.missionId ? currentMission.allowedBlocks : null;
   }
   activeStage().reset();
   renderAll();
@@ -156,14 +174,20 @@ function selectionState(state) {
   document.getElementById('move-down-btn').disabled = !state.down || running;
   document.getElementById('delete-btn').disabled = !state.selected || running;
   const insert = document.getElementById('insert-mode');
-  insert.hidden = !state.cShape || project.level > 2;
-  insert.querySelectorAll('button').forEach(function (button) { button.classList.toggle('is-active', button.dataset.insert === editor.insertMode); });
+  insert.hidden = !state.cShape || running;
+  insert.querySelectorAll('button').forEach(function (button) {
+    const active = button.dataset.insert === editor.insertMode;
+    button.hidden = button.dataset.insert === 'else' && !state.hasElse;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
 }
 
 const editor = new ScriptCanvas(document.getElementById('script-canvas'), {
   getProject: function () { return project; },
   rubyEnabled: rubyEnabled,
   onChange: recordChange,
+  isRunning: function () { return running; },
   onSelect: function () {},
   onSelectionState: selectionState,
   toast: toast,
@@ -172,17 +196,21 @@ const editor = new ScriptCanvas(document.getElementById('script-canvas'), {
 });
 
 const palette = new Palette(document.getElementById('category-tabs'), document.getElementById('palette'), document.getElementById('palette-search'), {
-  getState: function () { return { level: project.level, stage: project.stage, project: project, rubyEnabled: rubyEnabled(), allowedBlocks: allowedBlocks }; },
-  onAdd: function (type) { if (!running) editor.addType(type); },
+  getState: function () { return { level: project.level, stage: project.stage, project: project, rubyEnabled: rubyEnabled(), allowedBlocks: availableMissionBlocks() }; },
+  onAdd: function (type) {
+    if (running) return;
+    editor.addType(type);
+    if (matchMedia('(max-width: 699px)').matches) showMobileView('edit');
+  },
   onCreate: createNamedItem
 });
 
 const toolbar = new Toolbar({ onRun: runProject, onStop: function () { stopRun(true); }, onLevel: showLevelDialog, onUndo: undo, onRedo: redo });
 
 new DragController(document.getElementById('drag-layer'), {
-  onAdd: function (type, targetId) { if (!running) editor.addType(type, targetId); },
-  onMove: function (sourceId, targetId) { if (!running) editor.moveBefore(sourceId, targetId); },
-  onDelete: function (id) { if (!running) editor.deleteSelected(id); },
+  onAdd: editor.addType.bind(editor),
+  onMove: editor.moveBefore.bind(editor),
+  onDelete: editor.deleteSelected.bind(editor),
   onSnap: function () { audio.click(); }
 });
 
@@ -193,7 +221,7 @@ function makeScheduler() {
     motionDuration: function () { return toolbar.stepsPerFrame <= 1 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 300 : 0; },
     ask: function (question) { return dialogs.ask('しつもん', question, ''); },
     warn: function (code, blockId) {
-      const block = document.querySelector('.blk[data-id="' + blockId + '"]');
+      const block = document.querySelector('.blk[data-id="' + CSS.escape(String(blockId)) + '"]');
       if (block) { block.classList.add('is-error'); setTimeout(function () { block.classList.remove('is-error'); }, 1200); }
       toast(friendlyError({ code: code }, project.level), true);
     }
@@ -204,22 +232,30 @@ function makeScheduler() {
     onHighlight: function (id) { editor.setRunning(id); },
     onState: function (value) { running = value; updateToolbar(); },
     onMonitors: renderMonitors,
-    onDone: function () { running = false; updateToolbar(); updateMissionProgress(); if (!scheduler || !scheduler.running) toast(UI.complete); },
+    onDone: function () {
+      running = false;
+      runCompleted = true;
+      updateToolbar();
+      updateMissionProgress();
+      toast(UI.complete);
+    },
     onStuck: async function () {
       if (!running || stuckDialogOpen || dialogs.active) return;
       stuckDialogOpen = true;
+      const currentScheduler = scheduler;
       const shouldStop = await dialogs.show({
         title: 'うごきが とまって いるみたい',
         message: 'このまま つづけますか？ ずっとブロックは、じぶんで とめるまで うごきます。',
         buttons: [{ label: 'つづける', value: false }, { label: 'とめる', value: true, danger: true }]
       });
       stuckDialogOpen = false;
+      if (scheduler !== currentScheduler) return;
       if (shouldStop && running) stopRun(true);
       else if (running) activeStage().changedAt = performance.now();
     },
     onError: function (error) {
       const id = error && error.blockId;
-      const block = id ? document.querySelector('.blk[data-id="' + id + '"]') : null;
+      const block = id ? document.querySelector('.blk[data-id="' + CSS.escape(String(id)) + '"]') : null;
       if (block) block.classList.add('is-error');
       toast(friendlyError(error, project.level), true);
     }
@@ -229,41 +265,57 @@ function makeScheduler() {
 function runProject() {
   if (running) return;
   successPlayed = false;
+  runCompleted = false;
   activeStage().reset();
   scheduler = makeScheduler();
-  scheduler.start('event_start');
-  toast(UI.running);
+  updateMissionProgress();
+  if (scheduler.start('event_start')) toast(UI.running);
+  else if (project.scripts.some(script => ['event_key', 'event_click'].includes(script.blocks[0]?.type))) toast('キーや キャラを おして はじめよう');
+  else toast('「はじまり」の ブロックを おこう');
 }
 
 function triggerProjectEvent(type, detail) {
-  if (!scheduler || !scheduler.running) {
-    const next = makeScheduler();
-    if (!next.matching(type, detail).length) return;
-    scheduler = next;
-  }
+  const hasHat = project.scripts.some(script => script.blocks[0]?.type === type);
+  if (!hasHat) return;
+  if (!scheduler) scheduler = makeScheduler();
+  if (!scheduler.matching(type, detail).length) return;
+  runCompleted = false;
   scheduler.trigger(type, detail);
 }
 
 function stopRun(showMessage) {
+  runCompleted = false;
   if (scheduler) scheduler.stop();
   scheduler = null; running = false; editor.setRunning(null); updateToolbar();
+  if (!showMessage) interpreter = null;
   if (project.stage === 'device') { Object.keys(deviceStage.outputs).forEach(function (name) { deviceStage.outputs[name] = 0; }); deviceStage.render(); }
   updateMissionProgress();
   if (showMessage) toast(UI.stopped);
+}
+
+function discardExecution() {
+  if (scheduler) scheduler.stop();
+  if (interpreter) activeStage().reset();
+  scheduler = null;
+  interpreter = null;
+  runCompleted = false;
+  successPlayed = false;
 }
 
 function undo() {
   if (running) return;
   const snapshot = history.undo();
   if (!snapshot) return;
-  project = snapshot; editor.selectedId = null; renderAll();
+  discardExecution();
+  project = snapshot; renderAll();
 }
 
 function redo() {
   if (running) return;
   const snapshot = history.redo();
   if (!snapshot) return;
-  project = snapshot; editor.selectedId = null; renderAll();
+  discardExecution();
+  project = snapshot; renderAll();
 }
 
 function showLevelDialog() {
@@ -305,42 +357,54 @@ async function createNamedItem(category) {
   history.record(project); editor.selectedId = null; renderAll(); toast('「' + name + '」を つくったよ');
 }
 
-function updateMissionCard() {
+function activeMission() {
   const mission = customMission || currentMission;
+  return mission && mission.stage === project.stage ? mission : null;
+}
+
+function availableMissionBlocks() {
+  return customMission || activeMission() ? allowedBlocks : null;
+}
+
+function updateMissionCard() {
+  const mission = activeMission();
   document.getElementById('mission-title').textContent = mission ? mission.title : 'じゆうに つくろう';
   document.getElementById('mission-progress').textContent = mission ? mission.goal : 'ブロックを うごかしてみよう';
+  document.getElementById('goal-count').textContent = '';
 }
 
 function missionResults() {
-  return evaluateMission(customMission || currentMission, project, activeStage());
+  return evaluateMission(activeMission(), project, activeStage(), runCompleted);
 }
 
 function updateMissionProgress() {
   const results = missionResults();
   if (!results.length) return;
   const done = results.filter(function (item) { return item.passed; }).length;
-  document.getElementById('mission-progress').textContent = done + ' / ' + results.length + ' できた';
+  document.getElementById('goal-count').textContent = done + ' / ' + results.length + ' 達成';
   if (done === results.length && !successPlayed) { successPlayed = true; audio.effect('success'); toast('ミッション クリア！'); }
+}
+
+function startMission(mission) {
+  try { store.save(project); } catch (error) { toast('作品を保存できませんでした。ファイルに保存してね。', true); return; }
+  dialogs.close(false);
+  customMission = null;
+  currentMission = mission;
+  allowedBlocks = mission.allowedBlocks || null;
+  setProject(createProject({ ...missionProjectData(mission), author: store.author }), true);
+  showMobileView('edit');
+  toast('「' + mission.title + '」を はじめるよ');
 }
 
 function showMissionDialog() {
   const content = document.createElement('div'); content.className = 'dialog-content';
   const list = document.createElement('div'); list.className = 'dialog-list';
-  listMissions().filter(function (mission) { return mission.level <= Math.max(project.level, 3) || teacherMode; }).forEach(function (mission) {
+  listMissions().filter(function (mission) { return levelLocked ? mission.level <= project.level : mission.level <= Math.max(project.level, 3) || teacherMode; }).forEach(function (mission) {
     const button = document.createElement('button'); button.type = 'button';
     const title = document.createElement('strong'); title.textContent = mission.title;
     const meta = document.createElement('small'); meta.textContent = mission.grade + '・' + mission.subject + '・★' + mission.level;
     button.append(title, meta);
-    button.addEventListener('click', async function () {
-      dialogs.close(false);
-      const okay = await dialogs.askYesNo('この ミッションを はじめる？', 'いまの さくひんは じどうで ほぞんしてから きりかえるよ。');
-      if (!okay) return;
-      store.save(project);
-      currentMission = mission; customMission = null; allowedBlocks = mission.allowedBlocks || null;
-      const data = missionProjectData(mission);
-      setProject(createProject(Object.assign({ author: store.author }, data)), true);
-      toast('「' + mission.title + '」を はじめるよ');
-    });
+    button.addEventListener('click', () => startMission(mission));
     list.appendChild(button);
   });
   content.appendChild(list);
@@ -348,9 +412,17 @@ function showMissionDialog() {
   if (results.length) {
     const checks = document.createElement('ul'); checks.className = 'check-list';
     results.forEach(function (item) { const li = document.createElement('li'); li.className = item.passed ? 'is-done' : ''; li.textContent = (item.passed ? '✓ ' : '○ ') + item.label; checks.appendChild(li); });
-    content.appendChild(checks);
+    const current = customMission || currentMission;
+    const guide = dialogSection('いまのミッション');
+    if (current?.hints?.length) {
+      const hint = document.createElement('p');
+      hint.textContent = current.hints[0];
+      guide.appendChild(hint);
+    }
+    guide.appendChild(checks);
+    content.prepend(guide);
   }
-  dialogs.show({ title: 'ミッション', message: 'やってみたい もんだいを えらぼう。', content: content, wide: true, buttons: [{ label: 'とじる', value: false }] });
+  dialogs.show({ title: 'ミッション', message: '選ぶと、いまの作品を保存して新しい課題を開きます。', content: content, wide: true, buttons: [{ label: 'とじる', value: false }] });
 }
 
 async function saveNow(showMessage) {
@@ -367,6 +439,24 @@ async function showSaveDialog() {
   const content = document.createElement('div'); content.className = 'dialog-content';
   const local = dialogSection('この たんまつ');
   const localRow = document.createElement('div'); localRow.className = 'dialog-row';
+  const fresh = document.createElement('button');
+  fresh.type = 'button'; fresh.textContent = '新しい作品';
+  fresh.addEventListener('click', () => {
+    try { store.save(project); } catch (error) { toast('いまの作品を保存できませんでした', true); return; }
+    dialogs.close(false);
+    const empty = createProject({ name: '自由探検', missionId: 'free_draw', level: project.level, author: store.author });
+    empty.scripts = [{ id: makeId('s'), x: 40, y: 40, blocks: [createBlock('event_start')] }];
+    setProject(empty);
+    showMobileView('edit');
+  });
+  localRow.appendChild(fresh);
+  const author = document.createElement('button');
+  author.type = 'button'; author.textContent = '作者名を設定';
+  author.addEventListener('click', async () => {
+    const value = await dialogs.ask('作品の作者名', 'クラスと名前を作品に記録できます。', project.author || store.author);
+    if (value !== null) { project.author = value; store.author = value; await saveNow(true); }
+  });
+  localRow.appendChild(author);
   const download = document.createElement('button'); download.type = 'button'; download.textContent = 'ファイルに ほぞん'; download.addEventListener('click', function () { downloadProject(project); });
   const open = document.createElement('button'); open.type = 'button'; open.textContent = 'ファイルを ひらく'; open.addEventListener('click', function () { document.getElementById('file-input').click(); });
   localRow.append(download, open); local.appendChild(localRow); content.appendChild(local);
@@ -409,8 +499,12 @@ function showHelp() {
   const steps = dialogSection('3つの ステップ');
   ['1. ひだりの ブロックを タップ', '2. まんなかで ならべる', '3. 「うごかす」を おす'].forEach(function (text) { const p = document.createElement('p'); p.textContent = text; steps.appendChild(p); });
   const tips = dialogSection('こまった とき');
-  const p = document.createElement('p'); p.textContent = 'まちがえても「↶ もどす」で なおせます。ブロックは 矢印キーでも うごかせます。'; tips.appendChild(p);
-  content.append(steps, tips);
+  const p = document.createElement('p'); p.textContent = '上下キーで ブロックを えらべます。Altを おしながら 上下キーで ならべかえます。「もどす」で 前の状態に もどります。'; tips.appendChild(p);
+  const mapNote = dialogSection('探検地と地図');
+  const mapInfo = document.createElement('p');
+  mapInfo.textContent = '風景は実在する探検地をもとにしたイメージです。観測ステージの地形とルートは、プログラムを試すための練習地図です。';
+  mapNote.appendChild(mapInfo);
+  content.append(steps, tips, mapNote);
   dialogs.show({ title: 'つかいかた', content: content, buttons: [{ label: 'やってみる', value: true, primary: true }] });
 }
 
@@ -504,7 +598,12 @@ function registerWebMCP() {
     Promise.resolve(context.registerTool({
       name: 'add_block_to_project', title: 'ブロックを追加', description: '現在の作品に指定したブロックを追加し、画面を更新します。',
       inputSchema: { type: 'object', properties: { blockType: { type: 'string' } }, required: ['blockType'], additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false },
-      execute: function (input) { if (!input || typeof input.blockType !== 'string' || getDefinition(input.blockType).unknown) throw new Error('Unknown block type'); editor.addType(input.blockType); return { added: input.blockType, projectName: project.name }; }
+      execute: function (input) {
+        const available = listDefinitions(project.level, project.stage, null, availableMissionBlocks());
+        if (!available.some(def => def.type === input?.blockType)) throw new Error('This block is not available in the current palette.');
+        if (!editor.addType(input.blockType)) throw new Error('The block could not be inserted at the current selection.');
+        return { added: input.blockType, projectName: project.name };
+      }
     })).catch(report);
     Promise.resolve(context.registerTool({
       name: 'read_project_summary', title: '作品を確認', description: '現在開いている作品の名前、レベル、ステージ、スクリプト数を返します。',
@@ -527,17 +626,15 @@ async function loadInitial() {
       initial = createProject({ name: customMission.title, level: customMission.level, stage: customMission.stage, author: store.author, scripts: customMission.scripts ? clone(customMission.scripts) : [{ id: makeId('s'), x: 40, y: 40, blocks: clone(customMission.starter || []) }], sprites: customMission.sprites ? clone(customMission.sprites) : undefined, background: customMission.background || 'sky' });
     }
   } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); }
-  if (!initial && store.list().length) {
-    const choice = await dialogs.show({ title: 'まえの つづきが あるよ', message: 'まえに つくった さくひんの つづきから はじめますか？', buttons: [{ label: 'あたらしく つくる', value: false }, { label: 'つづきから', value: true, primary: true }] });
-    if (choice) initial = store.latest();
-  }
-  if (!initial) initial = createProject({ level: levelFromURL || store.level || 1, author: store.author });
+  if (!initial) initial = store.latest();
+  if (!initial) initial = createProject({ ...missionProjectData(currentMission), level: levelFromURL || store.level || 1, author: store.author });
   if (levelFromURL) initial.level = Math.max(1, Math.min(5, levelFromURL));
   project = normalizeProject(initial);
-  if (!store.author) {
-    const author = await dialogs.ask('なまえを おしえてね', 'クラスと なまえを いれると、さくひんに なまえが つくよ。', '');
-    if (author) { store.author = author; project.author = author; }
-  } else if (!project.author) project.author = store.author;
+  if (!project.author) project.author = store.author;
+  if (!customMission && project.missionId) {
+    currentMission = getMission(project.missionId);
+    allowedBlocks = currentMission.allowedBlocks;
+  }
   const font = Number(localStorage.getItem('bs.font')) || 0; if (font === 1) document.body.classList.add('font-large'); if (font === 2) document.body.classList.add('font-xlarge');
   history.reset(project);
   renderAll();
@@ -548,28 +645,74 @@ async function loadInitial() {
 document.getElementById('move-up-btn').addEventListener('click', function () { editor.moveSelected(-1); });
 document.getElementById('move-down-btn').addEventListener('click', function () { editor.moveSelected(1); });
 document.getElementById('delete-btn').addEventListener('click', function () { editor.deleteSelected(); });
-document.querySelectorAll('#insert-mode button').forEach(function (button) { button.addEventListener('click', function () { editor.setInsertMode(button.dataset.insert); editor.updateSelectionControls(); }); });
+document.querySelectorAll('#insert-mode button').forEach(function (button) { button.addEventListener('click', function () { editor.setInsertMode(button.dataset.insert); }); });
 document.getElementById('save-btn').addEventListener('click', showSaveDialog);
 document.getElementById('help-btn').addEventListener('click', showHelp);
 document.getElementById('teacher-btn').addEventListener('click', showTeacher);
 document.getElementById('missions-btn').addEventListener('click', showMissionDialog);
+document.getElementById('atlas-missions').addEventListener('click', showMissionDialog);
+document.getElementById('destination-btn').addEventListener('click', () => {
+  dialogs.show({ title: '探検地をえらぶ', message: 'いまの作品を保存して、探検地のミッションを開きます。', content: destinationMenu(getMission, startMission, levelLocked ? project.level : 0), buttons: [{ label: 'とじる', value: false }] });
+});
 document.getElementById('tidy-btn').addEventListener('click', function () { document.getElementById('script-canvas').scrollTo({ top: 0, left: 0, behavior: 'smooth' }); });
-document.getElementById('palette-search-toggle').addEventListener('click', function () { const field = document.querySelector('.search-field'); field.hidden = !field.hidden; if (!field.hidden) document.getElementById('palette-search').focus(); });
+document.getElementById('palette-search-toggle').addEventListener('click', function (event) {
+  const field = document.querySelector('.search-field');
+  const search = document.getElementById('palette-search');
+  field.hidden = !field.hidden;
+  event.currentTarget.setAttribute('aria-expanded', String(!field.hidden));
+  if (!field.hidden) search.focus();
+  else if (search.value) { search.value = ''; search.dispatchEvent(new Event('input')); }
+});
 document.getElementById('grid-btn').addEventListener('click', function (event) { turtleStage.setGrid(event.currentTarget.getAttribute('aria-pressed') !== 'true'); event.currentTarget.setAttribute('aria-pressed', String(turtleStage.grid)); });
 document.getElementById('export-image-btn').addEventListener('click', function () { const url = activeStage().captureThumbnail ? activeStage().captureThumbnail() : ''; if (!url) return; const link = document.createElement('a'); link.href = url; link.download = project.name.replace(/\s+/g, '') + '.png'; link.click(); });
 document.getElementById('sprite-shape-select').addEventListener('change', function (event) { const sprite = project.sprites && project.sprites[0]; if (!sprite) return; sprite.shape = event.target.value; sprite.name = event.target.options[event.target.selectedIndex].textContent; history.record(project); spriteStage.render(); updateToolbar(); });
 document.getElementById('sprite-add-btn').addEventListener('click', function () { if (project.sprites.length >= 8) { toast('キャラは 8たいまで だよ'); return; } const index = project.sprites.length; project.sprites.push({ id: makeId('sp'), name: 'キャラ ' + (index + 1), shape: spriteShapes[index % spriteShapes.length], x: (index % 4 - 1.5) * 70, y: (Math.floor(index / 4) - .5) * 90, dir: 90, size: 72, visible: true, color: ['#f5a623', '#4c9bd6', '#e95b6d', '#61a85a', '#8c62bd', '#e88d3d', '#df4f75', '#efc13d'][index % 8] }); history.record(project); spriteStage.render(); updateStageTabs(); updateToolbar(); toast('キャラを たしたよ'); });
 document.getElementById('sprite-background-btn').addEventListener('click', function () { const current = spriteBackgrounds.indexOf(project.background); project.background = spriteBackgrounds[(current + 1) % spriteBackgrounds.length]; history.record(project); spriteStage.render(); updateToolbar(); });
 document.getElementById('refresh-code-btn').addEventListener('click', function () { updateCode(true); document.getElementById('code-message').textContent = 'ブロックから コードを つくりました'; });
-document.getElementById('apply-code-btn').addEventListener('click', function () { try { project.scripts[0].blocks = jsToBlocks(document.getElementById('code-editor').value); history.record(project); editor.selectedId = null; editor.render(); document.getElementById('code-message').textContent = 'コードを ブロックに しました'; updateToolbar(); } catch (error) { document.getElementById('code-message').textContent = error.message; } });
+document.getElementById('apply-code-btn').addEventListener('click', function () {
+  const message = document.getElementById('code-message');
+  if (running) { message.textContent = 'とめてから コードを へんしゅうしてね'; return; }
+  if (project.scripts.length > 1 || (project.scripts[0]?.blocks[0] && project.scripts[0].blocks[0].type !== 'event_start')) {
+    message.textContent = 'コードからの変換は「▶ が おされたとき」ひと組の作品で使えます';
+    return;
+  }
+  try {
+    const blocks = jsToBlocks(document.getElementById('code-editor').value, project);
+    if (project.scripts.length) project.scripts[0].blocks = blocks;
+    else project.scripts.push({ id: makeId('s'), x: 40, y: 40, blocks });
+    editor.selectedId = null;
+    recordChange();
+    editor.render();
+    message.textContent = 'コードを ブロックに しました';
+  } catch (error) {
+    message.textContent = error.message;
+  }
+});
 document.getElementById('project-name').addEventListener('blur', function (event) { const name = event.target.textContent.trim().slice(0, 80); event.target.textContent = name || project.name; if (name && name !== project.name) { project.name = name; history.record(project); updateToolbar(); } });
 document.getElementById('file-input').addEventListener('change', async function (event) { try { const loaded = await readProjectFile(event.target.files[0]); setProject(loaded); dialogs.close(true); toast(UI.loaded); } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); } event.target.value = ''; });
 document.getElementById('script-canvas').addEventListener('dragover', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) event.preventDefault(); });
 document.getElementById('script-canvas').addEventListener('drop', async function (event) { if (!event.dataTransfer || !event.dataTransfer.files.length) return; event.preventDefault(); try { setProject(await readProjectFile(event.dataTransfer.files[0])); toast(UI.loaded); } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); } });
-document.querySelectorAll('.mobile-tab').forEach(function (button) { button.addEventListener('click', function () { document.querySelectorAll('.mobile-tab').forEach(function (item) { item.classList.toggle('is-active', item === button); }); document.getElementById('workspace').classList.toggle('mobile-stage', button.dataset.mobileView === 'stage'); }); });
-document.querySelectorAll('.stage-tab').forEach(function (button) { button.addEventListener('click', function () { if (running) stopRun(false); project.stage = button.dataset.stage; history.record(project); renderAll(); if (project.stage === 'device' && project.level < 3) toast('そうちの ブロックは ★3 から つかえるよ'); }); });
-window.addEventListener('keydown', function (event) { if (event.ctrlKey && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); return; } keys.add(event.key); triggerProjectEvent('event_key', event.key); });
+document.querySelectorAll('.mobile-tab').forEach(button => button.addEventListener('click', () => showMobileView(button.dataset.mobileView)));
+document.getElementById('run-btn').addEventListener('click', () => { if (matchMedia('(max-width: 699px)').matches) showMobileView('stage'); });
+document.querySelectorAll('.stage-tab').forEach(function (button) { button.addEventListener('click', function () { if (project.stage === button.dataset.stage) return; stopRun(false); project.stage = button.dataset.stage; history.record(project); renderAll(); if (project.stage === 'device' && project.level < 3) toast('そうちの ブロックは ★3 から つかえるよ'); }); });
+window.addEventListener('keydown', function (event) {
+  if (event.defaultPrevented || event.isComposing || dialogs.active || document.querySelector('.number-pad-backdrop')) return;
+  if (event.target instanceof Element && event.target.closest('input, select, textarea, [contenteditable="true"]')) return;
+  const key = event.key.toLowerCase();
+  if (event.ctrlKey || event.metaKey) {
+    if (key === 'z' || key === 'y') {
+      event.preventDefault();
+      if (key === 'y' || event.shiftKey) redo();
+      else undo();
+    }
+    return;
+  }
+  if (event.altKey || (event.target instanceof Element && event.target.closest('button, [role="button"]') && [' ', 'Enter'].includes(event.key))) return;
+  keys.add(event.key);
+  if (!event.repeat) triggerProjectEvent('event_key', event.key);
+});
 window.addEventListener('keyup', function (event) { keys.delete(event.key); });
+window.addEventListener('blur', function () { keys.clear(); });
 document.getElementById('sprite-canvas').addEventListener('click', function () { triggerProjectEvent('event_click'); });
 document.addEventListener('blockhint', function (event) { if (event.detail) toast(event.detail); });
 let brandTaps = 0; let brandTimer = 0;
@@ -581,6 +724,6 @@ loadInitial();
 
 if (teacherMode) document.getElementById('teacher-btn').hidden = false;
 
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+if (!document.documentElement.hasAttribute('data-standalone') && 'serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js').catch(function () {}); });
 }

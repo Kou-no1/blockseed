@@ -24,24 +24,27 @@ export class Interpreter {
     this.now = options.now || function () { return performance.now(); };
     this.motionDuration = options.motionDuration || function () { return 0; };
     this.startedAt = this.now();
+    this.changedAt = this.startedAt;
     this.answer = '';
     this.vars = new Map((this.project.vars || []).map(function (item) { return [item.id, item.value]; }));
+    this.varVisibility = new Map((this.project.vars || []).map(item => [item.id, item.show !== false]));
     this.lists = new Map((this.project.lists || []).map(function (item) { return [item.id, Array.isArray(item.value) ? item.value.slice() : []]; }));
-    this.callArgs = [];
   }
 
-  read(block, name, depth) {
-    if (block.inputs && block.inputs[name]) return this.evalValue(block.inputs[name], depth + 1);
+  read(block, name, depth, args) {
+    if (block.inputs && block.inputs[name]) return this.evalValue(block.inputs[name], depth + 1, args);
     return block.fields ? block.fields[name] : 0;
   }
 
-  number(block, name, depth) { return asNumber(this.read(block, name, depth || 0)); }
-  bool(block, name, depth) { return asBoolean(this.read(block, name, depth || 0)); }
+  setVariable(id, value) {
+    if (!Object.is(this.vars.get(id), value)) this.changedAt = this.now();
+    this.vars.set(id, value);
+  }
 
-  evalValue(block, depth) {
+  evalValue(block, depth, args) {
     if (!block) return 0;
     if ((depth || 0) > 1000) throw new UserError('E_DEEP', null, block.id);
-    const value = (name) => this.read(block, name, depth || 0);
+    const value = (name) => this.read(block, name, depth || 0, args);
     const number = (name) => asNumber(value(name));
     switch (block.type) {
       case 'op_add': return number('A') + number('B');
@@ -53,7 +56,14 @@ export class Interpreter {
         return number('A') / divisor;
       }
       case 'op_mod': { const divisor = number('B'); if (divisor === 0) { this.warn('E_DIV0', block.id); return 0; } return number('A') % divisor; }
-      case 'op_random': { const a = Math.ceil(Math.min(number('A'), number('B'))); const b = Math.floor(Math.max(number('A'), number('B'))); return Math.floor(Math.random() * (b - a + 1)) + a; }
+      case 'op_random': {
+        const first = number('A');
+        const second = number('B');
+        const low = Math.min(first, second);
+        const high = Math.max(first, second);
+        if (Number.isInteger(low) && Number.isInteger(high)) return low + Math.floor(Math.random() * (high - low + 1));
+        return low + Math.random() * (high - low);
+      }
       case 'op_gt': return number('A') > number('B');
       case 'op_lt': return number('A') < number('B');
       case 'op_eq': return value('A') == value('B');
@@ -63,10 +73,10 @@ export class Interpreter {
       case 'op_round': return Math.round(number('A'));
       case 'op_abs': return Math.abs(number('A'));
       case 'op_join': return String(value('A')) + String(value('B'));
-      case 'op_letter': return Array.from(String(value('B')))[Math.max(0, Math.floor(number('A')) - 1)] || '';
+      case 'op_letter': return Array.from(String(value('B')))[Math.floor(number('A')) - 1] || '';
       case 'op_length': return Array.from(String(value('A'))).length;
       case 'data_var': return this.vars.has(block.fields.VAR) ? this.vars.get(block.fields.VAR) : 0;
-      case 'data_list_item': { const list = this.lists.get(block.fields.LIST) || []; return list[Math.max(0, Math.floor(number('INDEX')) - 1)] || 0; }
+      case 'data_list_item': { const list = this.lists.get(block.fields.LIST) || []; return list[Math.floor(number('INDEX')) - 1] ?? 0; }
       case 'data_list_len': return (this.lists.get(block.fields.LIST) || []).length;
       case 'turtle_x': case 'motion_x': return this.stageAPI.x ? this.stageAPI.x() : 0;
       case 'turtle_y': case 'motion_y': return this.stageAPI.y ? this.stageAPI.y() : 0;
@@ -81,20 +91,20 @@ export class Interpreter {
       case 'device_sensor': return this.stageAPI.sensor ? this.stageAPI.sensor(block.fields.SENSOR) : 0;
       case 'device_sensor_on': return this.stageAPI.sensorOn ? this.stageAPI.sensorOn(block.fields.SENSOR) : false;
       case 'device_use_time': return this.stageAPI.useTime ? this.stageAPI.useTime() : 0;
-      case 'func_arg': return this.callArgs.length ? this.callArgs[this.callArgs.length - 1][Math.max(0, Math.floor(number('VALUE')))] || 0 : 0;
+      case 'func_arg': return args?.[Math.floor(number('VALUE'))] ?? 0;
       default: return block.fields && Object.keys(block.fields).length ? block.fields[Object.keys(block.fields)[0]] : 0;
     }
   }
 
-  *runBlocks(blocks, depth) {
+  *runBlocks(blocks, depth, args) {
     if ((depth || 0) > 1000) throw new UserError('E_DEEP');
     for (const block of blocks || []) {
       yield { kind: 'highlight', blockId: block.id };
-      yield* this.execute(block, depth || 0);
+      yield* this.execute(block, depth || 0, args);
     }
   }
 
-  *execute(block, depth) {
+  *execute(block, depth, args) {
     const definition = getDefinition(block.type);
     if (definition.stages && definition.stages.indexOf(this.stageName) < 0) {
       this.warn('E_UNKNOWN', block.id);
@@ -102,8 +112,9 @@ export class Interpreter {
       return;
     }
     const api = this.stageAPI;
-    const n = (name) => this.number(block, name, depth);
-    const v = (name) => this.read(block, name, depth);
+    const v = (name) => this.read(block, name, depth, args);
+    const n = (name) => asNumber(v(name));
+    const body = (branch = 'body') => this.runBlocks(block[branch], depth + 1, args);
     switch (block.type) {
       case 'turtle_forward': { const pending = api.forward(n('STEPS'), this.motionDuration()); if (pending) yield { kind: 'promise', promise: pending }; break; }
       case 'turtle_back': { const pending = api.back(n('STEPS'), this.motionDuration()); if (pending) yield { kind: 'promise', promise: pending }; break; }
@@ -116,7 +127,11 @@ export class Interpreter {
       case 'motion_turn_r': api.right(n('DEG')); break;
       case 'motion_turn_l': api.left(n('DEG')); break;
       case 'motion_goto_xy': api.goto(n('X'), n('Y')); break;
-      case 'motion_glide': api.glide(n('X'), n('Y')); yield { kind: 'sleep', ms: Math.max(0, n('SECS') * 1000) }; break;
+      case 'motion_glide': {
+        const motion = api.glide(n('X'), n('Y'), Math.max(0, n('SECS')));
+        if (motion) yield { kind: 'promise', promise: motion };
+        break;
+      }
       case 'motion_bounce': api.bounce(); break;
       case 'motion_point_to': api.pointTo(v('TARGET')); break;
       case 'pen_down': api.penDown(); break;
@@ -137,26 +152,35 @@ export class Interpreter {
       case 'control_wait': yield { kind: 'sleep', ms: Math.max(0, n('SECS') * 1000) }; break;
       case 'control_repeat': {
         const times = Math.min(100000, Math.max(0, Math.floor(n('TIMES'))));
-        for (let index = 0; index < times; index += 1) { yield* this.runBlocks(block.body || [], depth + 1); yield { kind: 'tick' }; }
+        for (let index = 0; index < times; index += 1) { yield* body(); yield { kind: 'tick' }; }
         break;
       }
-      case 'control_forever': while (true) { yield* this.runBlocks(block.body || [], depth + 1); yield { kind: 'tick' }; }
-      case 'control_if': if (this.bool(block, 'COND', depth)) yield* this.runBlocks(block.body || [], depth + 1); break;
-      case 'control_if_else': if (this.bool(block, 'COND', depth)) yield* this.runBlocks(block.body || [], depth + 1); else yield* this.runBlocks(block.body2 || [], depth + 1); break;
-      case 'control_wait_until': while (!this.bool(block, 'COND', depth)) yield { kind: 'sleep', ms: 16 }; break;
-      case 'control_repeat_until': while (!this.bool(block, 'COND', depth)) { yield* this.runBlocks(block.body || [], depth + 1); yield { kind: 'tick' }; } break;
+      case 'control_forever': while (true) { yield* body(); yield { kind: 'tick' }; }
+      case 'control_if': if (asBoolean(v('COND'))) yield* body(); break;
+      case 'control_if_else': yield* body(asBoolean(v('COND')) ? 'body' : 'body2'); break;
+      case 'control_wait_until': while (!asBoolean(v('COND'))) yield { kind: 'sleep', ms: 16 }; break;
+      case 'control_repeat_until': while (!asBoolean(v('COND'))) { yield* body(); yield { kind: 'tick' }; } break;
       case 'control_stop_all': yield { kind: 'stopAll' }; break;
       case 'control_broadcast': yield { kind: 'broadcast', message: String(v('MESSAGE')), wait: false }; break;
       case 'control_broadcast_wait': yield { kind: 'broadcast', message: String(v('MESSAGE')), wait: true }; break;
       case 'sensing_reset_timer': this.startedAt = this.now(); break;
       case 'sensing_ask': this.answer = yield { kind: 'promise', promise: this.ask(String(v('QUESTION'))) }; break;
-      case 'data_set': this.vars.set(block.fields.VAR, v('VALUE')); break;
-      case 'data_change': this.vars.set(block.fields.VAR, asNumber(this.vars.get(block.fields.VAR)) + n('VALUE')); break;
-      case 'data_show_var': { const item = this.project.vars.find((entry) => entry.id === block.fields.VAR); if (item) item.show = true; break; }
-      case 'data_hide_var': { const item = this.project.vars.find((entry) => entry.id === block.fields.VAR); if (item) item.show = false; break; }
-      case 'data_list_add': { const list = this.lists.get(block.fields.LIST) || []; list.push(v('VALUE')); this.lists.set(block.fields.LIST, list); break; }
-      case 'data_list_del': { const list = this.lists.get(block.fields.LIST) || []; list.splice(Math.max(0, Math.floor(n('INDEX')) - 1), 1); break; }
-      case 'data_list_clear': this.lists.set(block.fields.LIST, []); break;
+      case 'data_set': this.setVariable(block.fields.VAR, v('VALUE')); break;
+      case 'data_change': this.setVariable(block.fields.VAR, asNumber(this.vars.get(block.fields.VAR)) + n('VALUE')); break;
+      case 'data_show_var': this.varVisibility.set(block.fields.VAR, true); break;
+      case 'data_hide_var': this.varVisibility.set(block.fields.VAR, false); break;
+      case 'data_list_add': { const list = this.lists.get(block.fields.LIST) || []; list.push(v('VALUE')); this.lists.set(block.fields.LIST, list); this.changedAt = this.now(); break; }
+      case 'data_list_del': {
+        const list = this.lists.get(block.fields.LIST) || [];
+        const index = Math.floor(n('INDEX')) - 1;
+        if (index >= 0 && index < list.length) { list.splice(index, 1); this.changedAt = this.now(); }
+        break;
+      }
+      case 'data_list_clear': {
+        if (this.lists.get(block.fields.LIST)?.length) this.changedAt = this.now();
+        this.lists.set(block.fields.LIST, []);
+        break;
+      }
       case 'device_out_set': api.setOutput(v('OUTPUT'), asBoolean(v('STATE'))); break;
       case 'device_out_power': api.setPower(v('OUTPUT'), n('POWER')); break;
       case 'device_led_color': api.ledColor(v('COLOR')); break;
@@ -167,8 +191,8 @@ export class Interpreter {
         const script = (this.project.scripts || []).find(function (item) { const hat = item.blocks && item.blocks[0]; return hat && hat.type === 'func_define' && String(hat.fields.NAME) === name; });
         const body = script ? script.blocks.slice(1) : fn ? fn.body || [] : null;
         const rawArgs = v('ARGS');
-        const args = String(rawArgs == null ? '' : rawArgs).split(',').map(function (item) { const text = item.trim(); const number = Number(text); return text !== '' && Number.isFinite(number) ? number : text; });
-        if (body) { this.callArgs.push(args); yield* this.runBlocks(body, depth + 1); this.callArgs.pop(); }
+        const callArgs = String(rawArgs == null ? '' : rawArgs).split(',').map(function (item) { const text = item.trim(); const number = Number(text); return text !== '' && Number.isFinite(number) ? number : text; });
+        if (body) yield* this.runBlocks(body, depth + 1, callArgs);
         break;
       }
       default: if (!block.type.startsWith('event_') && !block.type.startsWith('op_') && !block.type.startsWith('data_var')) this.warn('E_UNKNOWN', block.id); break;

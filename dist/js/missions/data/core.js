@@ -9,16 +9,23 @@ function block(type, fields, body) {
   return result;
 }
 
-function polygonStarter(sides) {
+function polygonStarter(sides, repeats = sides) {
   return [
     block('event_start'), block('pen_down'),
-    block('control_repeat', { TIMES: sides }, [block('turtle_forward', { STEPS: sides > 8 ? 35 : 65 }), block('turtle_right', { DEG: 360 / sides })])
+    block('control_repeat', { TIMES: repeats }, [block('turtle_forward', { STEPS: sides > 8 ? 35 : 65 }), block('turtle_right', { DEG: 360 / sides })])
   ];
 }
 
 const intro = [
   { id: 'intro_move', title: 'かめを うごかそう', grade: '小1〜', subject: 'はじめて', unit: '順次', level: 1, stage: 'turtle', goal: 'うごかすを おして、かめに せんを かいてもらおう。', hints: ['すすむ ブロックを タップして たしてみよう'], allowedBlocks: ['event_start', 'turtle_forward', 'turtle_right', 'pen_down', 'pen_clear'], starter: [block('event_start'), block('pen_down'), block('turtle_forward', { STEPS: 100 })], check: { kind: 'turtlePath', minSegments: 1 } },
-  { id: 'intro_square', title: 'しかくを かこう', grade: '小2〜', subject: 'はじめて', unit: 'くりかえし', level: 1, stage: 'turtle', goal: 'おなじ うごきを 4かい くりかえして、しかくを かこう。', hints: ['90ど まがると しかくに なるよ'], allowedBlocks: ['event_start', 'turtle_forward', 'turtle_right', 'control_repeat', 'pen_down', 'pen_clear'], starter: polygonStarter(4), check: { kind: 'turtlePath', polygon: { sides: 4, tolerance: 7, closed: true }, required: ['control_repeat'] } },
+  {
+    id: 'intro_square', title: 'パタゴニアの観測ルート', grade: '小2〜', subject: '探検', unit: 'くりかえし', level: 1, stage: 'turtle',
+    goal: '湖のそばの観測地点を、正方形につなごう。4回くり返すと、出発点にもどれるかな？',
+    hints: ['まず実行して、線をたどろう。', '進む歩数を変えて、大小の正方形を試そう。'],
+    allowedBlocks: ['event_start', 'turtle_forward', 'turtle_right', 'turtle_left', 'control_repeat', 'pen_down', 'pen_clear'],
+    starter: polygonStarter(4),
+    check: { kind: 'turtlePath', polygon: { sides: 4, tolerance: 7, closed: true }, required: ['control_repeat'] }
+  },
   { id: 'intro_sound', title: 'おとを ならそう', grade: '小1〜', subject: 'はじめて', unit: '音', level: 1, stage: 'turtle', goal: 'すきな おとを ならしてみよう。', hints: ['おとの ブロックを タップしよう'], allowedBlocks: ['event_start', 'sound_note', 'sound_effect', 'control_repeat'], starter: [block('event_start'), block('sound_note', { NOTE: 60, SECS: .3 })], check: { kind: 'blockUsage', required: ['sound_note'] } },
   { id: 'intro_pattern', title: 'もようを つくろう', grade: '小2〜', subject: 'はじめて', unit: 'くりかえし', level: 1, stage: 'turtle', goal: 'すすむ・まがるを くりかえして、もようを つくろう。', hints: ['まがる かくどを かえてみよう'], starter: [block('event_start'), block('control_repeat', { TIMES: 18 }, [block('turtle_forward', { STEPS: 45 }), block('turtle_right', { DEG: 100 })])], check: { kind: 'turtlePath', minSegments: 8 } }
 ];
@@ -102,4 +109,22 @@ const advanced = [
   { id: 'free_music', title: 'おんがくを つくろう', grade: '自由', subject: '自由', unit: '楽器', level: 1, stage: 'turtle', goal: 'おとの 高さと 長さを かえて、じぶんの おんがくを つくろう。', starter: [block('event_start'), block('sound_note', { NOTE: 60, SECS: .3 }), block('sound_note', { NOTE: 64, SECS: .3 }), block('sound_note', { NOTE: 67, SECS: .5 })], check: { kind: 'free' } }
 ];
 
-export const missions = intro.concat(polygons, science, advanced);
+const expeditions = [
+  {
+    id: 'sossusvlei_survey', title: '砂丘の三角測量', grade: '小3〜', subject: '探検', unit: '回数と角度', level: 2, stage: 'turtle',
+    goal: '砂丘に見立てた3つの観測地点を正三角形で結ぼう。見本は2辺で止まるよ。',
+    hints: ['まず実行して、足りない辺を見つけよう。', '曲がる角度は120度のまま、くり返す回数を変えよう。'],
+    allowedBlocks: ['event_start', 'pen_down', 'pen_clear', 'turtle_forward', 'turtle_right', 'turtle_left', 'control_repeat'],
+    starter: polygonStarter(3, 2),
+    check: { kind: 'turtlePath', polygon: { sides: 3, tolerance: 6, closed: true }, required: ['control_repeat'] }
+  },
+  {
+    id: 'yakushima_canopy', title: '森の照度をしらべよう', grade: '小5〜', subject: '探検', unit: 'センサーと条件分岐', level: 3, stage: 'device',
+    goal: '木かげの観測灯を試そう。実行中に明るさを20にして点灯、次に70にして消灯させよう。',
+    hints: ['そうちの「明るさ」を動かそう。', 'この装置では明るさが35未満になると、明るさセンサーが反応するよ。'],
+    starter: deviceStarter('dark'),
+    check: { kind: 'deviceLog', rule: 'dark', requireBothStates: true, required: ['control_if_else', 'device_sensor_on'] }
+  }
+];
+
+export const missions = [intro[1], ...expeditions, intro[0], ...intro.slice(2), ...polygons, ...science, ...advanced];

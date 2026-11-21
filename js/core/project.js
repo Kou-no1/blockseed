@@ -44,7 +44,8 @@ export function createProject(options) {
   return {
     v: 1,
     id: settings.id || makeId('p'),
-    name: settings.name || 'はじめての さくひん',
+    name: settings.name || 'パタゴニアの観測ルート',
+    missionId: typeof settings.missionId === 'string' ? settings.missionId.slice(0, 80) : null,
     author: settings.author || '',
     level: clampLevel(settings.level || 1),
     stage: ['turtle', 'sprite', 'device'].includes(settings.stage) ? settings.stage : 'turtle',
@@ -90,6 +91,7 @@ export function normalizeProject(source) {
   const ids = new Set();
   base.id = typeof source.id === 'string' ? source.id : makeId('p');
   base.name = typeof source.name === 'string' ? source.name.slice(0, 80) : base.name;
+  base.missionId = typeof source.missionId === 'string' ? source.missionId.slice(0, 80) : null;
   base.author = typeof source.author === 'string' ? source.author.slice(0, 80) : '';
   base.level = clampLevel(source.level);
   base.stage = ['turtle', 'sprite', 'device'].includes(source.stage) ? source.stage : 'turtle';

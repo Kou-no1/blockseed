@@ -133,6 +133,33 @@ test('正多角形ミッションを3辺から12辺まで判定できる', funct
   }
 });
 
+test('探検課題は形とセンサーの両状態を確かめる', function () {
+  const square = getMission('intro_square');
+  const line = [0, 50, 0, 50, 0];
+  const flat = line.slice(1).map((x, index) => ({ x1: line[index], y1: 0, x2: x, y2: 0 }));
+  assert(evaluateMission(square, createProject(), { segments: flat }).some(item => !item.passed));
+
+  const mission = getMission('sossusvlei_survey');
+  const project = createProject({ scripts: [{ id: 'route', blocks: structuredClone(mission.starter) }] });
+  const repeat = project.scripts[0].blocks.find(item => item.type === 'control_repeat');
+  equal(repeat.fields.TIMES, 2);
+  function draw() {
+    const stage = mockStage();
+    exhaust(new Interpreter({ project, stage, audio: {} }).runBlocks(project.scripts[0].blocks.slice(1), 0));
+    return evaluateMission(mission, project, stage.state).every(item => item.passed);
+  }
+  equal(draw(), false);
+  repeat.fields.TIMES = 3;
+  equal(draw(), true);
+
+  const canopy = getMission('yakushima_canopy');
+  const sensorProject = createProject({ stage: 'device', scripts: [{ id: 'sensor', blocks: canopy.starter }] });
+  const log = [{ sensors: { light: 20 }, outputs: { led: 100 } }];
+  assert(evaluateMission(canopy, sensorProject, { log }).some(item => !item.passed));
+  log.push({ sensors: { light: 70 }, outputs: { led: 0 } });
+  assert(evaluateMission(canopy, sensorProject, { log }).every(item => item.passed));
+});
+
 test('Lv4作品をLv1にしても上級ブロックが保持される', function () {
   const project = createProject({ level: 4 }); project.scripts[0].blocks.push({ id: 'advanced', type: 'func_call', fields: { NAME: 'しかく' }, inputs: { NAME: null } });
   project.level = 1; const normalized = normalizeProject(project); assert(normalized.scripts[0].blocks.some(function (block) { return block.id === 'advanced'; }));
