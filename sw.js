@@ -3,6 +3,7 @@ const FILES = [
   './index.html', './manifest.webmanifest', './icon.svg', './sw.js',
   './css/base.css', './css/blocks.css', './css/layout.css', './css/levels.css', './css/expedition.css', './css/print.css',
   './js/main.js', './js/expedition.js',
+  './js/field/worlds.js', './js/field/stage.js', './js/field/living.js', './js/field/sky.js', './js/field/voyages.js',
   './assets/patagonia.webp', './assets/namib.webp', './assets/yakushima.webp',
   './js/core/events.js', './js/core/errors.js', './js/core/project.js', './js/core/history.js', './js/core/store.js', './js/core/share.js',
   './js/blocks/defs.helpers.js', './js/blocks/defs.event.js', './js/blocks/defs.motion.js', './js/blocks/defs.looks.js', './js/blocks/defs.sound.js', './js/blocks/defs.control.js', './js/blocks/defs.sensing.js', './js/blocks/defs.device.js', './js/blocks/defs.operators.js', './js/blocks/defs.data.js', './js/blocks/defs.function.js', './js/blocks/registry.js',

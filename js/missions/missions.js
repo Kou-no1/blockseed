@@ -1,6 +1,8 @@
 import { walkBlocks, clone } from '../core/project.js';
 import { getDefinition, getLabel } from '../blocks/registry.js';
-import { missions as missionData } from './data/core.js';
+import { missions } from './data/core.js';
+import { fieldMissions } from '../field/worlds.js';
+const missionData = missions.concat(fieldMissions);
 
 export function listMissions() { return missionData.slice(); }
 export function getMission(id) { return missionData.find(function (mission) { return mission.id === id; }) || missionData[0]; }
@@ -49,6 +51,7 @@ function polygonChecks(segments, polygon) {
 export function evaluateMission(mission, project, stage, completed = false) {
   if (!mission) return [];
   const check = mission.check || { kind: 'free' };
+  if (check.kind === 'field') return stage.results?.() || [];
   const types = usedTypes(project);
   const results = [];
   if (check.kind === 'turtlePath') {
@@ -116,6 +119,7 @@ export function evaluateMission(mission, project, stage, completed = false) {
 export function missionProjectData(mission) {
   return {
     name: mission.title, missionId: mission.id, level: mission.level, stage: mission.stage,
+    fieldScene: mission.stage === 'field' ? mission.id : undefined, fieldProgram: mission.fieldProgram,
     scripts: mission.scripts ? clone(mission.scripts) : [{ id: 'mission-script-' + mission.id, x: 40, y: 40, blocks: clone(mission.starter || []) }],
     sprites: mission.sprites ? clone(mission.sprites) : undefined,
     background: mission.background || 'sky'

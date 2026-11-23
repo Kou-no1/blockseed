@@ -48,7 +48,8 @@ export function createProject(options) {
     missionId: typeof settings.missionId === 'string' ? settings.missionId.slice(0, 80) : null,
     author: settings.author || '',
     level: clampLevel(settings.level || 1),
-    stage: ['turtle', 'sprite', 'device'].includes(settings.stage) ? settings.stage : 'turtle',
+    stage: ['turtle', 'sprite', 'device', 'field'].includes(settings.stage) ? settings.stage : 'turtle',
+    ...fieldSettings(settings),
     vars: Array.isArray(settings.vars) ? clone(settings.vars) : [{ id: 'v1', name: 'かず', value: 0, show: true }],
     lists: Array.isArray(settings.lists) ? clone(settings.lists) : [],
     funcs: Array.isArray(settings.funcs) ? clone(settings.funcs) : [],
@@ -63,6 +64,12 @@ export function createProject(options) {
 
 export function clampLevel(value) {
   return Math.min(5, Math.max(1, Number(value) || 1));
+}
+
+function fieldSettings(source) {
+  if (source.stage !== 'field') return {};
+  return { fieldScene: String(source.fieldScene || source.missionId || '').slice(0, 80),
+    fieldProgram: Array.isArray(source.fieldProgram) ? source.fieldProgram.slice(0, 20).map(value => String(value).slice(0, 80)) : [] };
 }
 
 function normalizeBlock(source, ids, depth) {
@@ -94,7 +101,8 @@ export function normalizeProject(source) {
   base.missionId = typeof source.missionId === 'string' ? source.missionId.slice(0, 80) : null;
   base.author = typeof source.author === 'string' ? source.author.slice(0, 80) : '';
   base.level = clampLevel(source.level);
-  base.stage = ['turtle', 'sprite', 'device'].includes(source.stage) ? source.stage : 'turtle';
+  base.stage = ['turtle', 'sprite', 'device', 'field'].includes(source.stage) ? source.stage : 'turtle';
+  Object.assign(base, fieldSettings(source));
   base.vars = Array.isArray(source.vars) ? clone(source.vars).slice(0, 50) : [];
   base.lists = Array.isArray(source.lists) ? clone(source.lists).slice(0, 20) : [];
   base.funcs = Array.isArray(source.funcs) ? clone(source.funcs).slice(0, 30) : [];

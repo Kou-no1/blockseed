@@ -14,12 +14,13 @@ import { LEVELS, UI } from './ui/labels.js';
 import { TurtleStage } from './stages/turtle.js';
 import { SpriteStage } from './stages/sprite.js';
 import { DeviceStage } from './stages/device.js';
+import { FieldStage } from './field/stage.js';
 import { Interpreter } from './runtime/interpreter.js';
 import { Scheduler } from './runtime/scheduler.js';
 import { jsToBlocks, projectToJS } from './runtime/tojs.js';
 import { getMission, listMissions, missionProjectData, evaluateMission } from './missions/missions.js';
 import { Synth } from './audio/synth.js';
-import { campaign, renderLandscape, destinationMenu, showMobileView } from './expedition.js';
+import { campaign, renderLandscape, destinationMenu, showMobileView, stampTotal } from './expedition.js';
 
 const params = new URLSearchParams(location.search);
 const levelFromURL = Number(params.get('level'));
@@ -47,7 +48,12 @@ let stuckDialogOpen = false;
 const turtleStage = new TurtleStage(document.getElementById('pen-canvas'), document.getElementById('actor-canvas'));
 const spriteStage = new SpriteStage(document.getElementById('sprite-canvas'), function () { return project; });
 const deviceStage = new DeviceStage(document.getElementById('device-stage'), function () { updateMissionProgress(); }, audio);
-const stages = { turtle: turtleStage, sprite: spriteStage, device: deviceStage };
+const fieldStage = new FieldStage((edited = true) => {
+  stoppedByUser = false; successPlayed = false; runCompleted = false;
+  if (edited) history.record(project);
+  updateToolbar(); updateMissionProgress();
+}, audio, runProject);
+const stages = { turtle: turtleStage, sprite: spriteStage, device: deviceStage, field: fieldStage };
 const spriteShapes = ['cat', 'robot', 'car', 'ball', 'rocket', 'bug', 'heart', 'star'];
 const spriteBackgrounds = ['sky', 'mint', 'sunset', 'night', 'candy', 'paper'];
 
@@ -91,6 +97,7 @@ function updateStageTabs() {
 }
 
 function updateToolbar() {
+  document.getElementById('field-stop').disabled = !running;
   const powered = project.stage === 'device' && Object.values(deviceStage.outputs).some(power => power > 0);
   toolbar.update({ running: running, canStop: running || powered, level: project.level, levelLocked: levelLocked, canUndo: history.canUndo, canRedo: history.canRedo });
   const status = document.getElementById('run-status');
@@ -136,14 +143,16 @@ function renderMonitors(runtime) {
 
 function renderAll() {
   renderLevel();
-  turtleStage.setRegion(renderLandscape(project.missionId));
+  const field = project.stage === 'field';
+  const scene = field ? getMission(project.fieldScene || project.missionId) : null;
+  document.body.classList.toggle('field-mode', field);
+  if (field) fieldStage.configure(project, scene.stage === 'field' ? scene : getMission('mulu_1'));
+  turtleStage.setRegion(renderLandscape(field ? scene.id : project.missionId));
   document.getElementById('project-name').textContent = project.name;
   updateStageTabs();
-  editor.render();
-  palette.render();
+  if (!field) { editor.render(); palette.render(); }
   updateToolbar();
-  updateCode(true);
-  renderMonitors(interpreter);
+  if (!field) { updateCode(true); renderMonitors(interpreter); }
   updateMissionCard();
   activeStage().render();
 }
@@ -274,6 +283,14 @@ function runProject() {
   stoppedByUser = false;
   successPlayed = false;
   runCompleted = false;
+  if (project.stage === 'field') {
+    running = true; updateToolbar();
+    fieldStage.run(toolbar.stepsPerFrame, updateMissionProgress, () => {
+      running = false; runCompleted = true; updateToolbar(); updateMissionProgress();
+    });
+    updateMissionProgress();
+    return;
+  }
   activeStage().reset();
   scheduler = makeScheduler();
   updateMissionProgress();
@@ -283,6 +300,7 @@ function runProject() {
 }
 
 function triggerProjectEvent(type, detail) {
+  if (project.stage === 'field') return;
   const hasHat = project.scripts.some(script => script.blocks[0]?.type === type);
   if (!hasHat) return;
   if (!scheduler) scheduler = makeScheduler();
@@ -296,6 +314,7 @@ function stopRun(showMessage) {
   stoppedByUser = showMessage;
   runCompleted = false;
   if (scheduler) scheduler.stop();
+  if (fieldStage.busy) { fieldStage.stop(); audio.stop(); }
   scheduler = null; running = false; editor.setRunning(null);
   if (!showMessage) interpreter = null;
   if (project.stage === 'device') { Object.keys(deviceStage.outputs).forEach(function (name) { deviceStage.outputs[name] = 0; }); deviceStage.render(); }
@@ -392,10 +411,10 @@ function missionResults() {
 
 function updateMissionProgress() {
   const mission = activeMission();
-  const id = !customMission && mission?.id === project.missionId ? mission.id : null;
+  const id = !customMission && mission?.id === project.missionId && (project.stage !== 'field' || project.fieldScene === mission.id) ? mission.id : null;
   const results = missionResults();
   const done = results.filter(function (item) { return item.passed; }).length;
-  const verified = results.length > 0 && done === results.length && (runCompleted || (running && project.stage === 'device'));
+  const verified = results.length > 0 && done === results.length && (runCompleted || (running && project.stage === 'device')) && (project.stage !== 'field' || fieldStage.completed);
   if (verified && !successPlayed) {
     successPlayed = true;
     const stamped = id && campaign.complete(id);
@@ -410,7 +429,7 @@ function updateMissionProgress() {
   if (label !== count.textContent) count.textContent = label;
   const next = document.getElementById('next-mission');
   next.hidden = !info?.cleared;
-  next.textContent = info?.allDone ? '全9題クリア！ 探検マップ' : info?.rank === 3 ? '次の探検地をえらぶ' : '次のお題へ';
+  next.textContent = info?.allDone ? '全' + stampTotal + '題クリア！ 探検マップ' : info?.rank === 3 ? '次の探検地をえらぶ' : '次のお題へ';
   const guide = document.getElementById('goal-details-btn');
   guide.hidden = !mission;
   if (!mission) closeGoalDetails();
@@ -606,6 +625,12 @@ function showTeacher() {
   checkLabel.append(checkText, checkSelect); create.appendChild(checkLabel);
   const sidesLabel = document.createElement('label'); sidesLabel.className = 'dialog-field'; const sidesText = document.createElement('span'); sidesText.textContent = '正多角形の へんの数（3〜12）'; const sidesInput = document.createElement('input'); sidesInput.className = 'dialog-input'; sidesInput.type = 'number'; sidesInput.min = '3'; sidesInput.max = '12'; sidesInput.value = '4'; sidesLabel.append(sidesText, sidesInput); create.appendChild(sidesLabel);
   const easyLabel = document.createElement('label'); easyLabel.className = 'dialog-check'; const easyInput = document.createElement('input'); easyInput.type = 'checkbox'; easyInput.checked = easyMode; easyLabel.append(easyInput, document.createTextNode(' かんたんモード（けす前に かくにん）')); create.appendChild(easyLabel);
+  if (project.stage === 'field') {
+    fields.goal.value = activeMission()?.goal || fieldStage.lesson.goal;
+    fields.allowed.parentElement.hidden = true; fields.required.parentElement.hidden = true;
+    sidesLabel.hidden = true; easyLabel.hidden = true;
+    checkSelect.replaceChildren(new Option('この秘境のお題をクリア', 'field'));
+  }
   const urlArea = document.createElement('textarea'); urlArea.readOnly = true; urlArea.placeholder = 'ここに かだいURLが できます'; create.appendChild(urlArea);
   const createRow = document.createElement('div'); createRow.className = 'dialog-row';
   const make = document.createElement('button'); make.type = 'button'; make.className = 'is-primary'; make.textContent = 'かだいURLを つくる';
@@ -616,6 +641,7 @@ function showTeacher() {
     if (check.kind === 'turtlePath') check.polygon = { sides: Math.max(3, Math.min(12, Number(sidesInput.value) || 4)), tolerance: 7, closed: true };
     if (check.kind === 'deviceLog') check.rule = 'both';
     const mission = { id: 'custom-' + Date.now(), custom: true, title: fields.title.value || 'せんせいからの かだい', goal: fields.goal.value || '', grade: 'かだい', subject: 'せんせい', level: project.level, stage: project.stage, allowedBlocks: fields.allowed.value.split(',').map(function (item) { return item.trim(); }).filter(Boolean), scripts: clone(project.scripts), sprites: clone(project.sprites), background: project.background, check: check };
+    if (project.stage === 'field') Object.assign(mission, { fieldScene: project.fieldScene, fieldProgram: project.fieldProgram });
     easyMode = easyInput.checked;
     const query = '?level=' + mission.level + '&lock=1' + (easyMode ? '&easy=1' : ''); urlArea.value = location.origin + location.pathname + query + '#m=' + encodeText(mission); copy.disabled = false;
   });
@@ -647,6 +673,7 @@ function registerWebMCP() {
       name: 'add_block_to_project', title: 'ブロックを追加', description: '現在の作品に指定したブロックを追加し、画面を更新します。',
       inputSchema: { type: 'object', properties: { blockType: { type: 'string' } }, required: ['blockType'], additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: function (input) {
+        if (project.stage === 'field') throw new Error('探検プログラムの命令は画面の選択欄で変更できます。');
         const available = listDefinitions(project.level, project.stage, null, availableMissionBlocks());
         if (!available.some(def => def.type === input?.blockType)) throw new Error('This block is not available in the current palette.');
         if (!editor.addType(input.blockType)) throw new Error('The block could not be inserted at the current selection.');
@@ -671,7 +698,7 @@ async function loadInitial() {
     } else if (hash.startsWith('m=')) {
       customMission = decodeText(hash.slice(2));
       allowedBlocks = customMission.allowedBlocks && customMission.allowedBlocks.length ? customMission.allowedBlocks : null;
-      initial = createProject({ name: customMission.title, level: customMission.level, stage: customMission.stage, author: store.author, scripts: customMission.scripts ? clone(customMission.scripts) : [{ id: makeId('s'), x: 40, y: 40, blocks: clone(customMission.starter || []) }], sprites: customMission.sprites ? clone(customMission.sprites) : undefined, background: customMission.background || 'sky' });
+      initial = createProject({ name: customMission.title, level: customMission.level, stage: customMission.stage, fieldScene: customMission.fieldScene, fieldProgram: customMission.fieldProgram, author: store.author, scripts: customMission.scripts ? clone(customMission.scripts) : [{ id: makeId('s'), x: 40, y: 40, blocks: clone(customMission.starter || []) }], sprites: customMission.sprites ? clone(customMission.sprites) : undefined, background: customMission.background || 'sky' });
     }
   } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); }
   if (!initial) initial = store.latest();
@@ -707,6 +734,13 @@ async function loadInitial() {
   renderAll();
   autosave(store, function () { return project; }, null, function () { toast('じどうほぞん できませんでした', true); });
   registerWebMCP();
+  if (params.get('map') === '1') {
+    openMap();
+    if (location.protocol !== 'file:') {
+      const url = new URL(location.href); url.searchParams.delete('map');
+      window.history.replaceState(window.history.state, '', url);
+    }
+  }
   if (project.stage === 'device') showMobileView('stage');
 }
 
@@ -786,8 +820,16 @@ document.getElementById('file-input').addEventListener('change', async function 
 document.getElementById('script-canvas').addEventListener('dragover', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) event.preventDefault(); });
 document.getElementById('script-canvas').addEventListener('drop', async function (event) { if (!event.dataTransfer || !event.dataTransfer.files.length) return; event.preventDefault(); try { setProject(await readProjectFile(event.dataTransfer.files[0])); toast(UI.loaded); } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); } });
 document.querySelectorAll('.mobile-tab').forEach(button => button.addEventListener('click', () => showMobileView(button.dataset.mobileView)));
+document.getElementById('field-stop').addEventListener('click', () => stopRun(true));
+document.getElementById('field-edit').addEventListener('click', () => {
+  document.getElementById('editor-panel').scrollIntoView({block:'start'});
+  document.querySelector('#field-lines select')?.focus({preventScroll:true});
+});
 document.getElementById('run-btn').addEventListener('click', () => {
-  if (matchMedia('(max-width: 699px)').matches) showMobileView('stage');
+  if (project.stage === 'field' && matchMedia('(max-width: 699px)').matches) {
+    document.getElementById('stage-title').focus({preventScroll:true});
+    document.getElementById('stage-panel').scrollIntoView({block:'start'});
+  } else if (matchMedia('(max-width: 699px)').matches) showMobileView('stage');
   else if (matchMedia('(max-width: 1023px)').matches) {
     document.getElementById('stage-title').focus({preventScroll:true});
     document.getElementById('stage-panel').scrollIntoView({block:'start'});

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sys
+import zlib
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DIST = ROOT / "dist"
+DIST = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "dist"
 SW = (DIST / "sw.js").read_text(encoding="utf-8")
 FILES = re.findall(r"['\"]\./([^'\"]+)['\"]", SW.split("const FILES = [", 1)[1].split("];", 1)[0])
 errors: list[str] = []
@@ -27,11 +30,25 @@ size = sum((DIST / name).stat().st_size for name in shipped)
 if size >= 300_000:
     errors.append(f"production payload is {size:,} bytes (limit 300,000)")
 
-for name in production:
+modules: dict[str, str] = {}
+packs = [name for name in production if name.endswith(".pack")]
+if len(packs) != 1:
+    errors.append("expected one offline module pack")
+else:
+    pack = packs[0]
+    raw = (DIST / pack).read_bytes()
+    if pack != "modules-" + hashlib.sha256(raw).hexdigest()[:16] + ".pack":
+        errors.append("module pack content hash does not match filename")
+    modules = json.loads(zlib.decompress(raw))
+    expected = {p.relative_to(ROOT).as_posix() for p in (ROOT / "js").rglob("*.js")}
+    if expected != set(modules):
+        errors.append("missing or undeclared module in offline pack")
+
+for name in production + list(modules):
     path = DIST / name
-    if not path.exists() or path.suffix.lower() not in {".html", ".css", ".js", ".webmanifest"}:
+    if path.suffix.lower() not in {".html", ".css", ".js", ".webmanifest"}:
         continue
-    text = path.read_text(encoding="utf-8")
+    text = modules[name] if name in modules else path.read_text(encoding="utf-8")
     if path.suffix == ".js":
         dependencies = re.findall(r"""\bfrom\s+['"](\.[^'"]+)['"]""", text)
     elif path.suffix == ".css":
@@ -42,7 +59,7 @@ for name in production:
         dependencies = []
     for dependency in dependencies:
         asset = (path.parent / dependency).resolve().relative_to(DIST).as_posix()
-        if asset not in production:
+        if asset not in production and asset not in modules:
             errors.append(f"not available offline: {asset} (used in {name})")
     if re.search(r"https?://", text):
         errors.append(f"external URL in {name}")
@@ -55,6 +72,7 @@ for name in production:
 
 print(f"production payload: {size:,} bytes")
 print(f"precache entries: {len(FILES)}")
+print(f"offline ES modules: {len(modules)}")
 if errors:
     print("FAILED")
     for error in errors:

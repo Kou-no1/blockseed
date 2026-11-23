@@ -5,7 +5,8 @@ import { createCampaign } from '../js/expedition.js';
 const ids = [
   'intro_square', 'paine_long_route', 'paine_rectangle',
   'sossusvlei_survey', 'namib_dune_turn', 'namib_hexagon',
-  'yakushima_canopy', 'yakushima_visitor', 'yakushima_night'
+  'yakushima_canopy', 'yakushima_visitor', 'yakushima_night',
+  ...['mulu','galapagos','uyuni','palau','aoraki','mcmurdo'].flatMap(area => [1,2,3].map(i => area + '_' + i))
 ];
 
 function localStore(initial = null) {
@@ -13,7 +14,7 @@ function localStore(initial = null) {
   return { getItem: () => value, setItem: (_, next) => { value = next; } };
 }
 
-test('a new explorer earns all nine stamps in order, including both destination unlocks', () => {
+test('a new explorer earns 27 stamps in order, including each destination unlock', () => {
   const storage = localStore();
   let game = createCampaign(storage);
   for (const [i, id] of ids.entries()) {
@@ -44,9 +45,17 @@ test('imported and free projects do not grant expedition stamps', () => {
   assert.equal(game.complete('free_draw'), false);
   assert.equal(game.complete('yakushima_canopy'), false);
   assert.equal(game.firstOpen(), ids[0]);
-  for (const corrupted of ['2.5','10','-1','NaN','Infinity']) {
+  for (const corrupted of ['2.5','28','-1','NaN','Infinity']) {
     assert.equal(createCampaign(localStore(corrupted)).firstOpen(), ids[0]);
   }
+});
+
+test('the old nine-stamp finish opens Mulu without replaying Yakushima', () => {
+  const game = createCampaign(localStore('9'));
+  assert.equal(game.firstOpen(), 'mulu_1');
+  assert.equal(game.info('yakushima_night').cleared, true);
+  assert.equal(game.info('yakushima_night').allDone, false);
+  assert.equal(game.isUnlocked('mulu_2'), false);
 });
 
 test('tabs share progress and repeated clears cannot erase another stamp', () => {

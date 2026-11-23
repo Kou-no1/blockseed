@@ -1,10 +1,13 @@
+import { fieldPlaces, fieldCover } from './field/worlds.js';
+
 const places = [
   { area: 'patagonia', missions: ['intro_square', 'paine_long_route', 'paine_rectangle'], region: 'チリ共和国 ／ パタゴニア', title: 'トーレス・デル・パイネ', latin: 'Torres del Paine National Park' },
   { area: 'namib', missions: ['sossusvlei_survey', 'namib_dune_turn', 'namib_hexagon'], region: 'ナミビア ／ ナミブ砂漠', title: 'ソススフレイ', latin: 'Sossusvlei, Namib Desert' },
   { area: 'yakushima', missions: ['yakushima_canopy', 'yakushima_visitor', 'yakushima_night'], region: '日本 ／ 鹿児島県', title: '屋久島', latin: 'Yakushima Island' }
-];
+].concat(fieldPlaces);
 
 const trail = places.flatMap(place => place.missions);
+export const stampTotal = trail.length;
 const progressKey = 'bs.expedition.v1';
 
 export function createCampaign(storage) {
@@ -53,7 +56,9 @@ export const campaign = createCampaign();
 
 export function renderLandscape(missionId) {
   const place = places.find(item => item.missions.includes(missionId)) || places[0];
-  document.getElementById('landscape').dataset.area = place.area;
+  const landscape = document.getElementById('landscape');
+  landscape.dataset.area = place.area;
+  landscape.style.backgroundImage = fieldCover(place.area);
   for (const key of ['region', 'title', 'latin']) {
     document.getElementById('place-' + key).textContent = place[key];
   }
@@ -69,6 +74,7 @@ export function destinationMenu(getMission, start, lockedLevel, currentId) {
     head.className = 'trail-head';
     const photo = document.createElement('span');
     photo.className = 'site-thumb site-thumb--' + place.area;
+    photo.style.backgroundImage = fieldCover(place.area);
     const title = document.createElement('h3');
     title.textContent = place.title;
     const status = document.createElement('span');
@@ -80,6 +86,13 @@ export function destinationMenu(getMission, start, lockedLevel, currentId) {
       const hint = document.createElement('p');
       hint.textContent = '🔒 ' + places[index - 1].title + 'の お題を3つクリアすると開くよ。';
       stop.appendChild(hint);
+      const preview = document.createElement('details');
+      const summary = document.createElement('summary'); summary.textContent = '3つのお題をのぞく';
+      const titles = document.createElement('ol');
+      for (const id of place.missions) {
+        const li = document.createElement('li'); li.textContent = getMission(id).title; titles.appendChild(li);
+      }
+      preview.append(summary, titles); stop.appendChild(preview);
     } else {
       for (const id of place.missions) {
         const mission = getMission(id), state = campaign.info(id);
