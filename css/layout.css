@@ -98,3 +98,19 @@
 .record-list { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .record-list span { padding: 5px 8px; border-radius: 7px; background: #eef4ee; font-size: .7rem; font-weight: 800; }
 @keyframes motor-spin { to { transform: rotate(360deg); } }
+
+#device-stage.is-active { display: block; overflow: auto; padding: 8px; }
+.experiment { grid-template-columns: minmax(0,1fr); height: auto; gap: 7px; }
+.experiment .device-card { padding: 9px; border-radius: 8px; }
+.condition-rule,.scene-options { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.condition-rule { font-size: .87rem; }
+.condition-rule select,.scene-options button {
+  min-height: 44px; padding: 4px 8px; border: 1px solid #aab9ab; border-radius: 6px;
+  background: #fff; font-size: .85rem; font-weight: 700; }
+.scene-options [aria-pressed="true"] { background: var(--teal); color: white; }
+.experiment-guide { margin: 7px 0 0; font-size: .85rem; color: #45614e; }
+.experiment .led-readout { margin-top: 8px; grid-template-columns: 36px 1fr; padding: 6px 10px; }
+.led-readout .output-value { font-size: 1rem; font-weight: 750; color: var(--ink); }
+.experiment summary { padding: 4px; cursor: pointer; font-size: .88rem; font-weight: 700; }
+.experiment .device-meter { margin-top: 8px; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.experiment .output-grid { margin-top: 8px; }

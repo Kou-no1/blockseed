@@ -19,7 +19,7 @@ import { Scheduler } from './runtime/scheduler.js';
 import { jsToBlocks, projectToJS } from './runtime/tojs.js';
 import { getMission, listMissions, missionProjectData, evaluateMission } from './missions/missions.js';
 import { Synth } from './audio/synth.js';
-import { renderLandscape, destinationMenu, showMobileView } from './expedition.js';
+import { campaign, renderLandscape, destinationMenu, showMobileView } from './expedition.js';
 
 const params = new URLSearchParams(location.search);
 const levelFromURL = Number(params.get('level'));
@@ -93,6 +93,10 @@ function updateToolbar() {
   const status = document.getElementById('run-status');
   status.textContent = running ? '実行中' : runCompleted ? '実行完了' : '待機中';
   status.dataset.active = String(running);
+  if (project.stage === 'device') deviceStage.setProgram(project, running, () => {
+    editor.render();
+    recordChange('LEDの条件を かえたよ');
+  });
   editor.element.inert = running;
   document.getElementById('palette-panel').inert = running;
   editor.updateSelectionControls();
@@ -370,7 +374,8 @@ function updateMissionCard() {
   const mission = activeMission();
   document.getElementById('mission-title').textContent = mission ? mission.title : 'じゆうに つくろう';
   document.getElementById('mission-progress').textContent = mission ? mission.goal : 'ブロックを うごかしてみよう';
-  document.getElementById('goal-count').textContent = '';
+  document.getElementById('mission-hint').textContent = mission?.hints?.[0] || '';
+  updateMissionProgress();
 }
 
 function missionResults() {
@@ -378,28 +383,63 @@ function missionResults() {
 }
 
 function updateMissionProgress() {
+  const mission = activeMission();
+  const id = !customMission && mission?.id === project.missionId ? mission.id : null;
   const results = missionResults();
-  if (!results.length) return;
   const done = results.filter(function (item) { return item.passed; }).length;
-  document.getElementById('goal-count').textContent = done + ' / ' + results.length + ' 達成';
-  if (done === results.length && !successPlayed) { successPlayed = true; audio.effect('success'); toast('ミッション クリア！'); }
+  const verified = results.length > 0 && done === results.length && (runCompleted || (running && project.stage === 'device'));
+  if (verified && !successPlayed) {
+    successPlayed = true;
+    const stamped = id && campaign.complete(id);
+    audio.effect('success');
+    toast(stamped ? 'クリア！ 探検マップにスタンプを押したよ' : 'お題をクリア！');
+  }
+  const info = campaign.info(id);
+  const rank = document.getElementById('mission-rank');
+  rank.textContent = info ? ['はじめの一歩','ちょうせん','うでだめし'][info.rank - 1] + '　' + info.rank + ' / 3' : '';
+  const count = document.getElementById('goal-count');
+  const label = info && !info.unlocked ? '保存作品でれんしゅう中（スタンプは探検順）' : info?.cleared ? '✓ クリアずみ' : results.length ? 'できた条件 ' + done + ' / ' + results.length : '';
+  if (label !== count.textContent) count.textContent = label;
+  const next = document.getElementById('next-mission');
+  next.hidden = !info?.cleared;
+  next.textContent = info?.allDone ? '全9題クリア！ 探検マップ' : info?.rank === 3 ? '次の探検地をえらぶ' : '次のお題へ';
+  const guide = document.getElementById('goal-details-btn');
+  guide.hidden = !mission;
+  if (!mission) closeGoalDetails();
+  if (!document.getElementById('goal-details').hidden) {
+    const list = document.getElementById('goal-checks');
+    const labels = results.map(item => (item.passed ? '✓ ' : '○ ') + item.label);
+    if (list.textContent !== labels.join('')) list.replaceChildren(...labels.map(line => {
+      const li = document.createElement('li'); li.textContent = line; return li;
+    }));
+  }
+}
+
+function closeGoalDetails() {
+  document.getElementById('goal-details').hidden = true;
+  document.getElementById('goal-details-btn').setAttribute('aria-expanded','false');
 }
 
 function startMission(mission) {
+  if (!campaign.isUnlocked(mission.id) || (levelLocked && mission.level > project.level)) { toast('探検マップで、いま選べるお題を見てね'); return; }
   try { store.save(project); } catch (error) { toast('作品を保存できませんでした。ファイルに保存してね。', true); return; }
   dialogs.close(false);
+  stopRun(false);
+  closeGoalDetails();
   customMission = null;
   currentMission = mission;
   allowedBlocks = mission.allowedBlocks || null;
   setProject(createProject({ ...missionProjectData(mission), author: store.author }), true);
-  showMobileView('edit');
+  saveNow(false);
+  showMobileView(mission.stage === 'device' ? 'stage' : 'edit');
+  document.getElementById('mission-title').scrollIntoView({block:'nearest'});
   toast('「' + mission.title + '」を はじめるよ');
 }
 
 function showMissionDialog() {
   const content = document.createElement('div'); content.className = 'dialog-content';
   const list = document.createElement('div'); list.className = 'dialog-list';
-  listMissions().filter(function (mission) { return levelLocked ? mission.level <= project.level : mission.level <= Math.max(project.level, 3) || teacherMode; }).forEach(function (mission) {
+  listMissions().filter(function (mission) { return !campaign.info(mission.id) && (levelLocked ? mission.level <= project.level : mission.level <= Math.max(project.level, 3) || teacherMode); }).forEach(function (mission) {
     const button = document.createElement('button'); button.type = 'button';
     const title = document.createElement('strong'); title.textContent = mission.title;
     const meta = document.createElement('small'); meta.textContent = mission.grade + '・' + mission.subject + '・★' + mission.level;
@@ -422,7 +462,7 @@ function showMissionDialog() {
     guide.appendChild(checks);
     content.prepend(guide);
   }
-  dialogs.show({ title: 'ミッション', message: '選ぶと、いまの作品を保存して新しい課題を開きます。', content: content, wide: true, buttons: [{ label: 'とじる', value: false }] });
+  dialogs.show({ title: '自由にえらべる練習', message: '作品を保存して、選んだ練習を開きます。', content: content, wide: true, buttons: [{ label: 'とじる', value: false }] });
 }
 
 async function saveNow(showMessage) {
@@ -489,7 +529,7 @@ async function showSaveDialog() {
   const ruby = document.createElement('button'); ruby.type = 'button'; ruby.textContent = rubyEnabled() ? 'ルビを オフ' : 'ルビを オン'; ruby.addEventListener('click', function () { localStorage.setItem('bs.ruby', rubyEnabled() ? '0' : '1'); ruby.textContent = rubyEnabled() ? 'ルビを オフ' : 'ルビを オン'; editor.render(); palette.render(); }); settingsRow.appendChild(ruby);
   const sound = document.createElement('button'); sound.type = 'button'; sound.textContent = audio.muted ? 'おとを オン' : 'おとを オフ'; sound.addEventListener('click', function () { audio.setMuted(!audio.muted); sound.textContent = audio.muted ? 'おとを オン' : 'おとを オフ'; }); settingsRow.appendChild(sound);
   const clear = document.createElement('button'); clear.type = 'button'; clear.textContent = 'この たんまつの データを ぜんぶ けす';
-  clear.addEventListener('click', async function () { if (await dialogs.askYesNo('データを ぜんぶ けす？', 'さくひんと なまえが きえます。ファイルに ほぞんしたものは のこります。', true)) { store.clearAll(); dialogs.close(true); setProject(createProject({ level: 1 })); toast('この たんまつの データを けしました'); } });
+  clear.addEventListener('click', async function () { if (await dialogs.askYesNo('データを ぜんぶ けす？', 'この端末の作品・なまえ・探検スタンプが消えます。', true)) { store.clearAll(); campaign.reset(); dialogs.close(true); setProject(createProject(missionProjectData(getMission('intro_square')))); toast('この たんまつの データを けしました'); } });
   settings.append(settingsRow, clear); content.appendChild(settings);
   dialogs.show({ title: 'ほぞん・ひらく', message: '5びょうごとに じどうで ほぞんしています。たいせつな さくひんは ファイルにも のこそう。', content: content, wide: true, buttons: [{ label: 'とじる', value: false, primary: true }] });
 }
@@ -627,7 +667,11 @@ async function loadInitial() {
     }
   } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); }
   if (!initial) initial = store.latest();
-  if (!initial) initial = createProject({ ...missionProjectData(currentMission), level: levelFromURL || store.level || 1, author: store.author });
+  if (!initial) {
+    const suggested = getMission(campaign.firstOpen());
+    if (!levelLocked || !levelFromURL || suggested.level <= levelFromURL) currentMission = suggested;
+    initial = createProject({ ...missionProjectData(currentMission), level: levelFromURL || Math.max(store.level || 1, currentMission.level), author: store.author });
+  }
   if (levelFromURL) initial.level = Math.max(1, Math.min(5, levelFromURL));
   project = normalizeProject(initial);
   if (!project.author) project.author = store.author;
@@ -640,6 +684,7 @@ async function loadInitial() {
   renderAll();
   autosave(store, function () { return project; }, null, function () { toast('じどうほぞん できませんでした', true); });
   registerWebMCP();
+  if (project.stage === 'device') showMobileView('stage');
 }
 
 document.getElementById('move-up-btn').addEventListener('click', function () { editor.moveSelected(-1); });
@@ -649,10 +694,26 @@ document.querySelectorAll('#insert-mode button').forEach(function (button) { but
 document.getElementById('save-btn').addEventListener('click', showSaveDialog);
 document.getElementById('help-btn').addEventListener('click', showHelp);
 document.getElementById('teacher-btn').addEventListener('click', showTeacher);
-document.getElementById('missions-btn').addEventListener('click', showMissionDialog);
-document.getElementById('atlas-missions').addEventListener('click', showMissionDialog);
-document.getElementById('destination-btn').addEventListener('click', () => {
-  dialogs.show({ title: '探検地をえらぶ', message: 'いまの作品を保存して、探検地のミッションを開きます。', content: destinationMenu(getMission, startMission, levelLocked ? project.level : 0), buttons: [{ label: 'とじる', value: false }] });
+function openMap() {
+  const menu = destinationMenu(getMission, startMission, levelLocked ? project.level : 0, project.missionId);
+  const practice = document.createElement('button'); practice.type = 'button';
+  practice.textContent = '自由にえらべる練習'; practice.addEventListener('click', showMissionDialog);
+  menu.appendChild(practice);
+  dialogs.show({ title: '探検マップ', message: '1つの探検地で3つのお題をクリアすると、次の探検地がひらくよ。', content: menu, wide: true, buttons: [{ label: 'とじる', value: false }] });
+}
+document.getElementById('atlas-missions').addEventListener('click', openMap);
+document.getElementById('destination-btn').addEventListener('click', openMap);
+document.getElementById('next-mission').addEventListener('click', () => {
+  const info = campaign.info(project.missionId);
+  if (!info?.cleared) return;
+  if (info.rank === 3 || info.allDone || (levelLocked && getMission(info.nextId).level > project.level)) openMap();
+  else startMission(getMission(info.nextId));
+});
+document.getElementById('goal-details-btn').addEventListener('click', event => {
+  const panel = document.getElementById('goal-details');
+  panel.hidden = !panel.hidden;
+  event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
+  updateMissionProgress();
 });
 document.getElementById('tidy-btn').addEventListener('click', function () { document.getElementById('script-canvas').scrollTo({ top: 0, left: 0, behavior: 'smooth' }); });
 document.getElementById('palette-search-toggle').addEventListener('click', function (event) {
@@ -693,7 +754,17 @@ document.getElementById('file-input').addEventListener('change', async function 
 document.getElementById('script-canvas').addEventListener('dragover', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) event.preventDefault(); });
 document.getElementById('script-canvas').addEventListener('drop', async function (event) { if (!event.dataTransfer || !event.dataTransfer.files.length) return; event.preventDefault(); try { setProject(await readProjectFile(event.dataTransfer.files[0])); toast(UI.loaded); } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); } });
 document.querySelectorAll('.mobile-tab').forEach(button => button.addEventListener('click', () => showMobileView(button.dataset.mobileView)));
-document.getElementById('run-btn').addEventListener('click', () => { if (matchMedia('(max-width: 699px)').matches) showMobileView('stage'); });
+document.getElementById('run-btn').addEventListener('click', () => {
+  if (matchMedia('(max-width: 699px)').matches) showMobileView('stage');
+  else if (matchMedia('(max-width: 1023px)').matches) {
+    document.getElementById('stage-title').focus({preventScroll:true});
+    document.getElementById('stage-panel').scrollIntoView({block:'start'});
+  }
+});
+document.getElementById('back-to-goal').addEventListener('click', () => {
+  document.getElementById('mission-title').focus({preventScroll:true});
+  document.getElementById('mission-card').scrollIntoView({block:'start'});
+});
 document.querySelectorAll('.stage-tab').forEach(function (button) { button.addEventListener('click', function () { if (project.stage === button.dataset.stage) return; stopRun(false); project.stage = button.dataset.stage; history.record(project); renderAll(); if (project.stage === 'device' && project.level < 3) toast('そうちの ブロックは ★3 から つかえるよ'); }); });
 window.addEventListener('keydown', function (event) {
   if (event.defaultPrevented || event.isComposing || dialogs.active || document.querySelector('.number-pad-backdrop')) return;

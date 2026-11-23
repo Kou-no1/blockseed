@@ -33,13 +33,26 @@
       </div>
     </header>
 
-    <section id="landscape" class="landscape" data-area="patagonia" aria-labelledby="place-title">
-      <div class="place-copy">
-        <div class="place-region"><span class="pin-glyph" aria-hidden="true">⌖</span><span id="place-region">チリ共和国 ／ パタゴニア</span></div>
-        <h1 id="place-title">トーレス・デル・パイネ</h1>
-        <p id="place-latin" lang="en">Torres del Paine National Park</p>
+    <section class="briefing" id="mission-card" aria-labelledby="mission-title">
+      <div class="briefing-copy">
+        <div class="briefing-overline"><span>いまのお題</span><span id="mission-rank"></span></div>
+        <h1 id="mission-title" tabindex="-1">みずうみを ひとまわり</h1>
+        <p id="mission-progress"></p>
+        <div class="briefing-actions">
+          <button id="goal-details-btn" type="button" aria-expanded="false" aria-controls="goal-details">ヒントとクリア条件</button>
+          <output id="goal-count"></output>
+          <button id="next-mission" class="continue-btn" type="button" hidden></button>
+        </div>
+        <div id="goal-details" hidden><p id="mission-hint"></p><ul id="goal-checks"></ul></div>
       </div>
-      <button id="destination-btn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 5 6-2 6 3 6-2v15l-6 2-6-3-6 2zm6-2v15m6-12v15"/></svg>探検地をえらぶ</button>
+      <div id="landscape" class="landscape" data-area="patagonia">
+        <div class="place-copy">
+          <div id="place-region" class="place-region">チリ共和国 ／ パタゴニア</div>
+          <strong id="place-title">トーレス・デル・パイネ</strong>
+          <span id="place-latin" lang="en">Torres del Paine National Park</span>
+        </div>
+        <button id="destination-btn" type="button">探検マップ</button>
+      </div>
     </section>
 
     <div class="toolbar" aria-label="実行と編集のどうぐ">
@@ -129,7 +142,7 @@
       </section>
 
       <section id="stage-panel" class="panel stage-panel" aria-label="ステージ">
-        <div class="panel__heading map-heading"><div><span class="eyebrow" lang="en">FIELD MONITOR</span><h2>観測ステージ</h2></div><output id="run-status" class="run-status">待機中</output></div>
+        <div class="panel__heading map-heading"><div><span class="eyebrow" lang="en">FIELD MONITOR</span><h2 id="stage-title" tabindex="-1">観測ステージ</h2></div><button id="back-to-goal" type="button">お題にもどる</button><output id="run-status" class="run-status">待機中</output></div>
         <div class="stage-heading">
           <div class="stage-tabs" role="tablist" aria-label="ステージを えらぶ">
             <button class="stage-tab is-active" data-stage="turtle" type="button" role="tab" aria-selected="true">ルート</button>
@@ -140,16 +153,6 @@
             <button id="grid-btn" class="icon-btn" type="button" aria-pressed="false" title="グリッド">#</button>
             <button id="export-image-btn" class="icon-btn" type="button" title="えを ほぞん" aria-label="えを ほぞん">⇩</button>
           </div>
-        </div>
-        <div id="mission-card" class="mission-card">
-          <div class="mission-card__icon" aria-hidden="true">◎</div>
-          <div class="mission-card__copy">
-            <span class="mission-card__kicker">ミッション</span>
-            <strong id="mission-title">しかくを かこう</strong>
-            <span id="mission-progress">ブロックを うごかしてみよう</span>
-            <small id="goal-count"></small>
-          </div>
-          <button id="missions-btn" type="button">一覧</button>
         </div>
         <div id="stage" class="stage" aria-live="polite">
           <div id="turtle-stage" class="stage-view is-active">

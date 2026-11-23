@@ -1,16 +1,1 @@
-@page { margin: 12mm; }
-body { overflow: visible; background: #fff; }
-.toolbar, .palette-panel, .stage-panel, .mobile-tabs, .edit-actions, .insert-mode { display: none !important; }
-.app-shell, .workspace, .editor-panel, .script-canvas { display: block; height: auto; overflow: visible; border: 0; box-shadow: none; background: #fff; }
-.panel__heading { border: 0; padding: 0 0 10mm; }
-.blk { break-inside: avoid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-.print-sheet { display: none; color: #173536; }
-body[data-print-mode="cards"] .app-shell, body[data-print-mode="worksheet"] .app-shell { display: none !important; }
-body[data-print-mode="cards"] .print-sheet, body[data-print-mode="worksheet"] .print-sheet { display: block; }
-.print-sheet h1 { margin: 0 0 8mm; font-size: 20pt; }
-.print-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; align-items: start; }
-.print-cards .blk { width: 100%; min-height: 15mm; }
-.worksheet-goal { padding: 5mm; border: 2px solid #176b64; border-radius: 4mm; font-size: 15pt; }
-.worksheet-name { margin: 8mm 0; font-size: 13pt; }
-.worksheet-space { min-height: 120mm; padding: 7mm; border: 2px dashed #78908c; border-radius: 4mm; color: #607474; }
-.worksheet-reflection { min-height: 42mm; margin-top: 8mm; padding: 7mm; border: 2px solid #78908c; border-radius: 4mm; }
+@page{margin: 12mm;}body{overflow: visible;background: #fff;}.toolbar, .palette-panel, .stage-panel, .mobile-tabs, .edit-actions, .insert-mode{display: none !important;}.app-shell, .workspace, .editor-panel, .script-canvas{display: block;height: auto;overflow: visible;border: 0;box-shadow: none;background: #fff;}.panel__heading{border: 0;padding: 0 0 10mm;}.blk{break-inside: avoid;print-color-adjust: exact;-webkit-print-color-adjust: exact;}.print-sheet{display: none;color: #173536;}body[data-print-mode="cards"] .app-shell, body[data-print-mode="worksheet"] .app-shell{display: none !important;}body[data-print-mode="cards"] .print-sheet, body[data-print-mode="worksheet"] .print-sheet{display: block;}.print-sheet h1{margin: 0 0 8mm;font-size: 20pt;}.print-cards{display: grid;grid-template-columns: 1fr 1fr;gap: 5mm;align-items: start;}.print-cards .blk{width: 100%;min-height: 15mm;}.worksheet-goal{padding: 5mm;border: 2px solid #176b64;border-radius: 4mm;font-size: 15pt;}.worksheet-name{margin: 8mm 0;font-size: 13pt;}.worksheet-space{min-height: 120mm;padding: 7mm;border: 2px dashed #78908c;border-radius: 4mm;color: #607474;}.worksheet-reflection{min-height: 42mm;margin-top: 8mm;padding: 7mm;border: 2px solid #78908c;border-radius: 4mm;}

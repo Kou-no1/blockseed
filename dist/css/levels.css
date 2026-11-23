@@ -1,11 +1,1 @@
-.level-1 { --block-h: 64px; }
-.level-2 { --block-h: 52px; }
-.level-3, .level-4, .level-5 { --block-h: 44px; }
-.level-1 .blk { font-size: 1rem; }
-.level-1 .palette .blk { min-height: 60px; }
-.level-1 button, .level-1 select { min-height: 48px; }
-.level-3 .palette-search-toggle, .level-4 .palette-search-toggle, .level-5 .palette-search-toggle { display: inline-grid; }
-.level-1 .palette-search-toggle, .level-2 .palette-search-toggle { display: none; }
-.font-large { --font-scale: 1.14; }
-.font-xlarge { --font-scale: 1.3; }
-ruby rt { font-size: .55em; }
+.level-1{--block-h: 64px;}.level-2{--block-h: 52px;}.level-3, .level-4, .level-5{--block-h: 44px;}.level-1 .blk{font-size: 1rem;}.level-1 .palette .blk{min-height: 60px;}.level-1 button, .level-1 select{min-height: 48px;}.level-3 .palette-search-toggle, .level-4 .palette-search-toggle, .level-5 .palette-search-toggle{display: inline-grid;}.level-1 .palette-search-toggle, .level-2 .palette-search-toggle{display: none;}.font-large{--font-scale: 1.14;}.font-xlarge{--font-scale: 1.3;}ruby rt{font-size: .55em;}

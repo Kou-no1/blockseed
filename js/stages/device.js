@@ -25,48 +25,134 @@ export class DeviceStage extends Stage {
   }
 
   build() {
-    const stage = this;
-    this.root.textContent = '';
-    const controls = document.createElement('div'); controls.className = 'device-grid';
-    const sensors = document.createElement('section'); sensors.className = 'device-card';
-    const sensorTitle = document.createElement('h3'); sensorTitle.textContent = 'センサー（入力）'; sensors.appendChild(sensorTitle);
-    Object.keys(this.sensors).forEach(function (key) {
-      const row = document.createElement('label'); row.className = 'sensor-row';
-      const name = document.createElement('span'); name.textContent = SENSOR_LABELS[key];
-      const input = document.createElement(key === 'motion' || key === 'switch' ? 'button' : 'input'); input.dataset.sensor = key;
-      if (input.tagName === 'INPUT') { input.type = 'range'; input.min = '0'; input.max = key === 'temp' ? '40' : '100'; input.value = stage.sensors[key]; }
-      else { input.type = 'button'; input.setAttribute('aria-pressed', String(stage.sensors[key] >= 50)); input.textContent = key === 'motion' ? (stage.sensors[key] >= 50 ? '人が いる' : 'いない') : (stage.sensors[key] >= 50 ? 'ON' : 'OFF'); }
-      const value = document.createElement('output'); value.textContent = String(stage.sensors[key]);
-      if (input.tagName === 'INPUT') input.addEventListener('input', function () { stage.sensors[key] = Number(input.value); value.textContent = input.value; stage.markChanged(); });
-      else input.addEventListener('click', function () { stage.sensors[key] = stage.sensors[key] >= 50 ? 0 : 100; const on = stage.sensors[key] >= 50; input.setAttribute('aria-pressed', String(on)); input.textContent = key === 'motion' ? (on ? '人が いる' : 'いない') : (on ? 'ON' : 'OFF'); value.textContent = String(stage.sensors[key]); stage.markChanged(); });
-      row.append(name, input, value); sensors.appendChild(row);
-    });
-    const autoRow = document.createElement('div'); autoRow.className = 'device-actions';
-    const autoButton = document.createElement('button'); autoButton.type = 'button'; autoButton.textContent = 'じどうモード'; autoButton.setAttribute('aria-pressed', 'false');
-    autoButton.addEventListener('click', function () { stage.auto = !stage.auto; autoButton.setAttribute('aria-pressed', String(stage.auto)); autoButton.classList.toggle('is-active', stage.auto); });
-    autoRow.appendChild(autoButton); sensors.appendChild(autoRow);
-    const outputCard = document.createElement('section'); outputCard.className = 'device-card';
-    const outputTitle = document.createElement('h3'); outputTitle.textContent = 'そうち（出力）'; outputCard.appendChild(outputTitle);
-    const outputGrid = document.createElement('div'); outputGrid.className = 'output-grid';
-    Object.keys(this.outputs).forEach(function (key) {
+    this.root.innerHTML = `
+      <div class="device-grid experiment">
+        <section class="device-card">
+          <h3>LEDがつく条件</h3>
+          <div class="condition-rule"></div>
+          <p class="experiment-guide"></p>
+        </section>
+        <section class="device-card">
+          <h3>まわりの様子を変える</h3>
+          <div class="scene-options">
+            <button type="button" data-light="20">木かげ（暗い）</button>
+            <button type="button" data-light="70">日なた（明るい）</button>
+            <button type="button" data-sensor="motion" aria-label="人がいる" aria-pressed="false">人はいない</button>
+          </div>
+          <div class="led-readout output-item" data-output="led">
+            <span class="output-icon" aria-hidden="true">●</span><strong>観測灯（LED）</strong>
+            <span class="output-value" aria-live="polite">消えている</span>
+          </div>
+        </section>
+        <details class="device-card">
+          <summary>ほかのセンサーと装置</summary>
+          <div class="sensor-list"></div>
+          <div class="device-actions"><button type="button" data-auto aria-pressed="false">センサーを自動で変える</button></div>
+          <div class="output-grid"></div>
+        </details>
+        <details class="device-card">
+          <summary>電気の使用時間を記録</summary>
+          <div class="device-meter">
+            <strong class="use-time"></strong><output class="energy-score"></output>
+            <div class="energy-bar"><span></span></div>
+            <button type="button" data-record>きろくする</button>
+            <button type="button" data-copy>CSVをコピー</button><div class="record-list"></div>
+          </div>
+        </details>
+      </div>`;
+    const find = selector => this.root.querySelector(selector);
+    this.ruleBox = find('.condition-rule');
+    this.guide = find('.experiment-guide');
+    this.autoButton = find('[data-auto]');
+    this.autoButton.onclick = () => { this.auto = !this.auto; this.syncSensors(); };
+    for (const button of this.root.querySelectorAll('[data-light]')) {
+      button.onclick = () => this.changeSensor('light', Number(button.dataset.light));
+    }
+    this.inputs = { motion: find('[data-sensor="motion"]') };
+    this.inputs.motion.onclick = () => this.changeSensor('motion', this.sensorOn('motion') ? 0 : 100);
+    for (const key of ['light','temp','sound','switch']) {
+      const row = document.createElement('label');
+      row.className = 'sensor-row';
+      const label = document.createElement('span');
+      label.textContent = SENSOR_LABELS[key];
+      const input = document.createElement(key === 'switch' ? 'button' : 'input');
+      input.dataset.sensor = key;
+      input.setAttribute('aria-label', SENSOR_LABELS[key]);
+      if (key === 'switch') {
+        input.type = 'button';
+        input.onclick = () => this.changeSensor(key, this.sensorOn(key) ? 0 : 100);
+      } else {
+        input.type = 'range'; input.min = '0'; input.max = key === 'temp' ? '40' : '100';
+        input.oninput = () => this.changeSensor(key, Number(input.value));
+      }
+      this.inputs[key] = input;
+      row.append(label, input, document.createElement('output'));
+      find('.sensor-list').appendChild(row);
+    }
+    for (const [key, icon] of [['motor','⚙'], ['buzzer','♪'], ['heater','♨']]) {
       const item = document.createElement('div'); item.className = 'output-item'; item.dataset.output = key;
-      const icon = document.createElement('span'); icon.className = 'output-icon'; icon.textContent = key === 'led' ? '●' : key === 'motor' ? '⚙' : key === 'buzzer' ? '♪' : '♨';
-      const name = document.createElement('strong'); name.textContent = OUTPUT_LABELS[key];
-      const value = document.createElement('span'); value.className = 'output-value'; value.textContent = 'オフ';
-      item.append(icon, name, value); outputGrid.appendChild(item);
-    });
-    outputCard.appendChild(outputGrid);
-    const meter = document.createElement('section'); meter.className = 'device-card device-meter';
-    const meterTitle = document.createElement('h3'); meterTitle.textContent = 'でんきの つかいかた'; meter.appendChild(meterTitle);
-    const use = document.createElement('strong'); use.className = 'use-time'; use.textContent = '0.0 びょう'; meter.appendChild(use);
-    const score = document.createElement('output'); score.className = 'energy-score'; score.textContent = '省エネ度 100%'; meter.appendChild(score);
-    const bar = document.createElement('div'); bar.className = 'energy-bar'; const fill = document.createElement('span'); bar.appendChild(fill); meter.appendChild(bar);
-    const recordButton = document.createElement('button'); recordButton.type = 'button'; recordButton.textContent = 'きろくする';
-    recordButton.addEventListener('click', function () { stage.record(); }); meter.appendChild(recordButton);
-    const copyButton = document.createElement('button'); copyButton.type = 'button'; copyButton.textContent = 'CSVを コピー'; copyButton.addEventListener('click', function () { stage.copyRecords(copyButton); }); meter.appendChild(copyButton);
-    const recordList = document.createElement('div'); recordList.className = 'record-list'; meter.appendChild(recordList);
-    controls.append(sensors, outputCard, meter); this.root.appendChild(controls);
+      item.innerHTML = '<span aria-hidden="true" class="output-icon">' + icon + '</span><strong>' + OUTPUT_LABELS[key] + '</strong><span class="output-value"></span>';
+      find('.output-grid').appendChild(item);
+    }
+    find('[data-record]').onclick = () => this.record();
+    find('[data-copy]').onclick = event => this.copyRecords(event.currentTarget);
+    this.syncSensors();
     this.render();
+  }
+
+  changeSensor(key, value) {
+    this.auto = false;
+    this.sensors[key] = value;
+    this.markChanged();
+    this.syncSensors();
+  }
+
+  syncSensors() {
+    this.autoButton.setAttribute('aria-pressed', String(this.auto));
+    for (const button of this.root.querySelectorAll('[data-light]')) button.setAttribute('aria-pressed', String(this.sensors.light === Number(button.dataset.light)));
+    for (const [key, input] of Object.entries(this.inputs)) {
+      const value = this.sensor(key);
+      if (key === 'motion' || key === 'switch') {
+        const on = this.sensorOn(key);
+        input.setAttribute('aria-pressed', String(on));
+        input.textContent = key === 'motion' ? (on ? '人がいる' : '人はいない') : (on ? 'オン' : 'オフ');
+      } else input.value = value;
+      if (key !== 'motion') input.nextElementSibling.textContent = String(value);
+    }
+  }
+
+  setProgram(project, running, onChange) {
+    // Show an editable rule only when this single loop describes the complete LED program.
+    const blocks = project.scripts.length === 1 ? project.scripts[0].blocks : [];
+    const loop = blocks[1];
+    const branch = blocks.length === 2 && blocks[0].type === 'event_start' && loop?.type === 'control_forever' && loop.body?.length === 1 ? loop.body[0] : null;
+    const setsLed = (body, value) => body?.length === 1 && body[0].type === 'device_out_set' &&
+      body[0].fields.OUTPUT === 'led' && Number(body[0].fields.STATE) === value && !Object.values(body[0].inputs || {}).some(Boolean);
+    const condition = branch?.type === 'control_if_else' && setsLed(branch.body, 1) && setsLed(branch.body2, 0) ? branch.inputs.COND : null;
+    const members = condition?.type === 'op_and' ? [condition.inputs.A, condition.inputs.B] : [condition];
+    const labels = { light: '暗い（明るさ35未満）', motion: '人がいる', temp: '28度以上', sound: '音が55以上', switch: 'スイッチがオン' };
+    this.ruleMembers = members.every(item => item?.type === 'device_sensor_on' && Object.hasOwn(labels, item.fields.SENSOR) && !item.inputs?.SENSOR) ? members : [];
+    this.onConditionChange = onChange;
+    const signature = this.ruleMembers.map(item => item.fields.SENSOR).join(',');
+    if (this.ruleSignature !== signature) {
+      this.ruleSignature = signature;
+      this.ruleBox.replaceChildren();
+      this.ruleMembers.forEach((item, index) => {
+        if (index) this.ruleBox.append('かつ');
+        const select = document.createElement('select'); select.setAttribute('aria-label', 'LEDがつく条件 ' + (index + 1));
+        for (const [key, label] of Object.entries(labels)) select.add(new Option(label, key));
+        select.value = item.fields.SENSOR;
+        select.onchange = () => {
+          this.ruleMembers[index].fields.SENSOR = select.value;
+          this.onConditionChange();
+        };
+        this.ruleBox.appendChild(select);
+      });
+      if (this.ruleMembers.length) this.ruleBox.append('なら点灯。それ以外は消灯。');
+      else this.ruleBox.textContent = 'プログラムのブロックで装置を動かそう。';
+    }
+    this.ruleBox.querySelectorAll('select').forEach(select => { select.disabled = running; });
+    this.guide.textContent = running ? '実験中。まわりの様子を変えて、LEDを見よう。' : '「うごかす」を押して、条件を試そう。';
   }
 
   markChanged() { this.changedAt = performance.now(); }
@@ -100,9 +186,7 @@ export class DeviceStage extends Stage {
       const cycle = this.autoTime % 20;
       this.sensors.light = Math.round(50 + Math.cos(cycle / 20 * Math.PI * 2) * 48);
       this.sensors.motion = cycle > 4 && cycle < 8 || cycle > 13 && cycle < 15 ? 100 : 0;
-      const light = this.root.querySelector('[data-sensor="light"]'); const motion = this.root.querySelector('[data-sensor="motion"]');
-      if (light) { light.value = this.sensors.light; light.nextElementSibling.textContent = this.sensors.light; }
-      if (motion) { motion.value = this.sensors.motion; motion.setAttribute('aria-pressed', String(this.sensors.motion >= 50)); motion.textContent = this.sensors.motion >= 50 ? '人が いる' : 'いない'; motion.nextElementSibling.textContent = this.sensors.motion; }
+      this.syncSensors();
       this.markChanged();
     }
     const totalPower = Object.values(this.outputs).reduce(function (sum, power) { return sum + clamp(power, 0, 100) / 100; }, 0);
@@ -161,7 +245,9 @@ export class DeviceStage extends Stage {
       const on = stage.outputs[key] > 0;
       item.classList.toggle('is-on', on);
       if (key === 'led') item.style.setProperty('--lamp', stage.ledColor);
-      item.querySelector('.output-value').textContent = on ? Math.round(stage.outputs[key]) + '%' : 'オフ';
+      const output = item.querySelector('.output-value');
+      const value = key === 'led' ? (on ? 'ついている' : '消えている') : (on ? Math.round(stage.outputs[key]) + '%' : 'オフ');
+      if (output.textContent !== value) output.textContent = value;
     });
     const use = this.root.querySelector('.use-time'); if (use) use.textContent = this.useSeconds.toFixed(1) + ' びょう';
     const score = this.root.querySelector('.energy-score'); if (score) score.textContent = '省エネ度 ' + Math.max(0, Math.round(100 - this.energy / 30 * 100)) + '%';

@@ -1,6 +1,6 @@
-const CACHE = 'blockseed-expeditions-v2.0.0';
+const CACHE = 'blockseed-expeditions-v3-dev';
 const FILES = [
-  './', './index.html', './manifest.webmanifest', './icon.svg', './sw.js',
+  './index.html', './manifest.webmanifest', './icon.svg', './sw.js',
   './css/base.css', './css/blocks.css', './css/layout.css', './css/levels.css', './css/expedition.css', './css/print.css',
   './js/main.js', './js/expedition.js',
   './assets/patagonia.webp', './assets/namib.webp', './assets/yakushima.webp',
@@ -13,7 +13,8 @@ const FILES = [
 ];
 
 self.addEventListener('install', function (event) {
-  event.waitUntil(caches.open(CACHE).then(function (cache) { return cache.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
+  const requests = FILES.map(file => new Request(new URL(file, self.location.href), { cache: 'reload' }));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(requests)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', function (event) {
@@ -23,6 +24,12 @@ self.addEventListener('activate', function (event) {
 self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(caches.open(CACHE).then(async function (cache) {
+    const path = new URL(event.request.url).pathname;
+    const base = new URL('./', self.location.href).pathname;
+    if (event.request.mode === 'navigate' && (path === base || path === base + 'index.html')) {
+      const shell = await cache.match('./index.html');
+      if (shell) return shell;
+    }
     const cached = await cache.match(event.request);
     if (cached) return cached;
     try {
