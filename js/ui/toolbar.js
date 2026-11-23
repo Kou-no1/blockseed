@@ -18,7 +18,7 @@ export class Toolbar {
 
   update(state) {
     this.run.disabled = state.running;
-    this.stop.disabled = !state.running;
+    this.stop.disabled = !state.canStop;
     this.level.textContent = LEVELS[state.level].button;
     this.level.disabled = state.levelLocked;
     this.undo.disabled = !state.canUndo || state.running;

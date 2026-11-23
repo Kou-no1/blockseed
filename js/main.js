@@ -24,6 +24,7 @@ import { campaign, renderLandscape, destinationMenu, showMobileView } from './ex
 const params = new URLSearchParams(location.search);
 const levelFromURL = Number(params.get('level'));
 const levelLocked = params.get('lock') === '1';
+const devicePractices = new Map([['science_dark', 'ライトをつける練習'], ['tech_fan', 'ファンを回す練習']]);
 let teacherMode = params.get('teacher') === '1';
 let easyMode = params.get('easy') === '1';
 const store = new ProjectStore();
@@ -40,6 +41,7 @@ let interpreter = null;
 let running = false;
 let successPlayed = false;
 let runCompleted = false;
+let stoppedByUser = false;
 let stuckDialogOpen = false;
 
 const turtleStage = new TurtleStage(document.getElementById('pen-canvas'), document.getElementById('actor-canvas'));
@@ -89,9 +91,10 @@ function updateStageTabs() {
 }
 
 function updateToolbar() {
-  toolbar.update({ running: running, level: project.level, levelLocked: levelLocked, canUndo: history.canUndo, canRedo: history.canRedo });
+  const powered = project.stage === 'device' && Object.values(deviceStage.outputs).some(power => power > 0);
+  toolbar.update({ running: running, canStop: running || powered, level: project.level, levelLocked: levelLocked, canUndo: history.canUndo, canRedo: history.canRedo });
   const status = document.getElementById('run-status');
-  status.textContent = running ? '実行中' : runCompleted ? '実行完了' : '待機中';
+  status.textContent = running ? '実行中' : stoppedByUser ? '停止' : runCompleted ? '実行完了' : '待機中';
   status.dataset.active = String(running);
   if (project.stage === 'device') deviceStage.setProgram(project, running, () => {
     editor.render();
@@ -268,6 +271,7 @@ function makeScheduler() {
 
 function runProject() {
   if (running) return;
+  stoppedByUser = false;
   successPlayed = false;
   runCompleted = false;
   activeStage().reset();
@@ -283,21 +287,25 @@ function triggerProjectEvent(type, detail) {
   if (!hasHat) return;
   if (!scheduler) scheduler = makeScheduler();
   if (!scheduler.matching(type, detail).length) return;
+  stoppedByUser = false;
   runCompleted = false;
   scheduler.trigger(type, detail);
 }
 
 function stopRun(showMessage) {
+  stoppedByUser = showMessage;
   runCompleted = false;
   if (scheduler) scheduler.stop();
-  scheduler = null; running = false; editor.setRunning(null); updateToolbar();
+  scheduler = null; running = false; editor.setRunning(null);
   if (!showMessage) interpreter = null;
   if (project.stage === 'device') { Object.keys(deviceStage.outputs).forEach(function (name) { deviceStage.outputs[name] = 0; }); deviceStage.render(); }
+  updateToolbar();
   updateMissionProgress();
   if (showMessage) toast(UI.stopped);
 }
 
 function discardExecution() {
+  stoppedByUser = false;
   if (scheduler) scheduler.stop();
   if (interpreter) activeStage().reset();
   scheduler = null;
@@ -667,6 +675,21 @@ async function loadInitial() {
     }
   } catch (error) { toast(friendlyError({ code: 'E_LOAD' }, project.level), true); }
   if (!initial) initial = store.latest();
+  const practiceId = params.get('practice');
+  if (!hash && location.protocol !== 'file:' && devicePractices.has(practiceId)) {
+    const practice = getMission(practiceId);
+    const limit = levelFromURL || initial?.level || store.level;
+    if (levelLocked && practice.level > limit) {
+      if (initial?.level > limit || initial?.missionId === practiceId) initial = null;
+      toast('この練習は先生のレベル設定でロックされています');
+    } else if (initial?.missionId !== practiceId) {
+      initial = createProject({ ...missionProjectData(practice), author: store.author });
+    }
+    // Consume the link once so later reloads resume the current project.
+    const url = new URL(location.href);
+    url.searchParams.delete('practice');
+    window.history.replaceState(window.history.state, '', url);
+  }
   if (!initial) {
     const suggested = getMission(campaign.firstOpen());
     if (!levelLocked || !levelFromURL || suggested.level <= levelFromURL) currentMission = suggested;
@@ -696,6 +719,15 @@ document.getElementById('help-btn').addEventListener('click', showHelp);
 document.getElementById('teacher-btn').addEventListener('click', showTeacher);
 function openMap() {
   const menu = destinationMenu(getMission, startMission, levelLocked ? project.level : 0, project.missionId);
+  for (const [id, label] of devicePractices) {
+    const mission = getMission(id);
+    if (levelLocked && mission.level > project.level) continue;
+    const choice = document.createElement('button'); choice.type = 'button';
+    choice.dataset.practice = id;
+    choice.textContent = label;
+    choice.addEventListener('click', () => startMission(mission));
+    menu.appendChild(choice);
+  }
   const practice = document.createElement('button'); practice.type = 'button';
   practice.textContent = '自由にえらべる練習'; practice.addEventListener('click', showMissionDialog);
   menu.appendChild(practice);

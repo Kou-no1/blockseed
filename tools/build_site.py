@@ -10,9 +10,29 @@ DIST = ROOT / "dist"
 TOP_LEVEL = ("index.html", "manifest.webmanifest", "icon.svg", "sw.js")
 DIRECTORIES = ("css", "js", "assets")
 
-# Only trim indentation in plain JS. Newlines carry automatic-semicolon
-# semantics, and whitespace in template literals / continued strings is data.
 CSS_LITERAL = re.compile(r"""('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|/\*.*?\*/)""", re.S)
+JS_STRING = re.compile(r"""('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")""")
+JS_DELIMITER = re.compile(r"[ \t]*([,;(){}\[\]:])[ \t]*")
+JS_SPACED_OPERATOR = re.compile(r" (===|!==|==|!=|=>|&&|\|\||=) ")
+
+
+def compact_module(text: str) -> str:
+    # Leave files with multiline literals or block comments untouched. For
+    # plain modules, preserve every newline and skip lines that may contain a
+    # regex or a comment. Only compact punctuation outside quoted strings.
+    if "`" in text or "/*" in text or "\\\n" in text:
+        return text
+    lines = text.split("\n")
+    for index, original in enumerate(lines):
+        line = original.lstrip(" \t")
+        if "/" not in line:
+            parts = JS_STRING.split(line)
+            for part in range(0, len(parts), 2):
+                plain = JS_SPACED_OPERATOR.sub(r"\1", parts[part])
+                parts[part] = JS_DELIMITER.sub(r"\1", plain)
+            line = "".join(parts)
+        lines[index] = line
+    return "\n".join(lines)
 
 
 def production_bytes(source: Path) -> bytes:
@@ -20,8 +40,8 @@ def production_bytes(source: Path) -> bytes:
         return source.read_bytes()
     text = source.read_text(encoding="utf-8")
     if source.suffix == ".js":
-        if chr(96) not in text and not re.search(r"\\\n", text):
-            text = re.sub(r"^[ \t]+", "", text, flags=re.M)
+        if source.name != "sw.js":
+            text = compact_module(text)
     else:
         parts = CSS_LITERAL.split(text)
         for index in range(0, len(parts), 2):

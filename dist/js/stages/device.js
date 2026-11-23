@@ -1,7 +1,64 @@
 import { Stage, clamp } from './stage.js';
+import { walkBlocks } from '../core/project.js';
 
 const SENSOR_LABELS = { motion: '人感', light: '明るさ', temp: '温度', sound: '音', switch: 'スイッチ' };
-const OUTPUT_LABELS = { led: 'LED', motor: 'モーター', buzzer: 'ブザー', heater: 'ヒーター' };
+const OUTPUT_LABELS = { led: '観測灯（LED）', motor: 'モーター', buzzer: 'ブザー', heater: 'ヒーター' };
+
+// Only the moving or illuminated parts follow the electrical output.
+const drawings = {
+  led: `
+    <g class="lamp-light">
+      <circle cx="86" cy="62" r="54" fill="url(#lamp-halo)" stroke="none"/>
+      <path d="M42 45l-7-4m6 20H31m12 17-8 4m95-37 7-4m-6 20h10m-12 17 8 4" stroke="var(--lamp)" stroke-width="3"/>
+    </g>
+    <path d="M65 36v-8a21 19 0 0 1 42 0v8" fill="none" stroke="#59726b" stroke-width="4"/>
+    <path d="M69 41q-6 21-5 36 22 10 44 0 1-15-5-36z" fill="#abc6bc"/>
+    <path class="lamp-light" d="M69 41q-6 21-5 36 22 10 44 0 1-15-5-36z" fill="var(--lamp)" stroke="none"/>
+    <path d="M73 48l-2 18" stroke="white" stroke-opacity=".75" stroke-width="3"/>
+    <path d="M62 41l5-9h38l5 9zM65 79h42l5 11H60z" fill="#3d6559"/>
+    <rect x="58" y="90" width="56" height="7" rx="3" fill="#29473f"/>
+    <path d="M62 42l-4 35 7 5m45-40 4 35-7 5" fill="none"/>
+    <path d="M81 71v-9q5-6 10 0v9" fill="#f8edbc"/>
+    <rect x="78" y="71" width="16" height="6" rx="2" fill="#526b60"/>
+  `,
+  motor: `
+    <path d="M81 69h10l2 19 18 5v4H61v-4l18-5z" fill="#466d60"/>
+    <circle cx="86" cy="46" r="35" fill="#c5dbd2" stroke-width="3"/>
+    <g class="rotor" fill="#3a8170">
+      <path id="fan-blade" d="M86 46c-13-5-21-17-16-22 6-7 18-6 22 0 4 6-1 16-6 22z"/>
+      <use href="#fan-blade" transform="rotate(120 86 46)"/><use href="#fan-blade" transform="rotate(240 86 46)"/>
+    </g>
+    <circle cx="86" cy="46" r="29" stroke="#698c7e" stroke-width="1" fill="none"/>
+    <circle cx="86" cy="46" r="6" fill="#ffc571"/>
+    <path class="wind-lines" d="M132 34q9-4 16-1m-15 12h20m-21 11q9 4 16 1" fill="none" stroke="#4a887f"/>
+  `,
+  buzzer: `
+    <path d="M64 82h39l6 11H58z" fill="#416656"/>
+    <path d="M55 41h24l24-14v51L79 65H55z" fill="#ecb86b"/>
+    <path d="M55 41h13v24H55z" fill="#507466"/>
+    <ellipse cx="103" cy="52" rx="9" ry="26" fill="#344f47"/><ellipse cx="103" cy="52" rx="3" ry="11" fill="#e0ad65"/>
+    <path class="sound-waves" d="M120 42q8 10 0 20m7-27q14 17 0 34m7-42q20 25 0 50" fill="none" stroke="#458176" stroke-width="3"/>
+  `,
+  heater: `
+    <path d="M59 89v7m55-7v7" stroke-width="5"/>
+    <rect x="49" y="43" width="75" height="46" rx="8" fill="#547468"/>
+    <rect x="56" y="50" width="61" height="29" rx="3" fill="#253f38"/>
+    <path class="heating-coil" d="M61 67q4-23 8-4t8 0 8 0 8 0 8 0 8 0" fill="none" stroke-width="4"/>
+    <path class="heat-waves" d="M69 35q-5-5 0-11t0-11m17 22q-5-5 0-11t0-11m17 22q-5-5 0-11t0-11" fill="none" stroke="#c76a3e"/>
+  `
+};
+
+function outputIllustration(key) {
+  const card = document.createElement('div');
+  card.className = 'output-item';
+  card.dataset.output = key;
+  card.innerHTML = `<svg class="device-art" viewBox="0 0 172 106" aria-hidden="true" focusable="false">
+    ${key === 'led' ? '<defs><radialGradient id="lamp-halo"><stop offset="0" stop-color="var(--lamp)" stop-opacity=".98"/><stop offset="1" stop-color="var(--lamp)" stop-opacity="0"/></radialGradient></defs>' : ''}
+    <ellipse cx="86" cy="96" rx="41" ry="4" fill="#8ba79a" opacity=".3"/>
+    <g stroke="#29483f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">${drawings[key]}</g>
+    </svg><div class="output-caption"><strong>${OUTPUT_LABELS[key]}</strong><span class="output-value" aria-live="polite"></span></div>`;
+  return card;
+}
 
 export class DeviceStage extends Stage {
   constructor(root, onRecord, audio) {
@@ -27,6 +84,7 @@ export class DeviceStage extends Stage {
   build() {
     this.root.innerHTML = `
       <div class="device-grid experiment">
+        <div class="apparatus-rack" aria-label="プログラムで動く装置"></div>
         <section class="device-card">
           <h3>LEDがつく条件</h3>
           <div class="condition-rule"></div>
@@ -39,10 +97,7 @@ export class DeviceStage extends Stage {
             <button type="button" data-light="70">日なた（明るい）</button>
             <button type="button" data-sensor="motion" aria-label="人がいる" aria-pressed="false">人はいない</button>
           </div>
-          <div class="led-readout output-item" data-output="led">
-            <span class="output-icon" aria-hidden="true">●</span><strong>観測灯（LED）</strong>
-            <span class="output-value" aria-live="polite">消えている</span>
-          </div>
+          <div class="main-sensors"></div>
         </section>
         <details class="device-card">
           <summary>ほかのセンサーと装置</summary>
@@ -89,10 +144,11 @@ export class DeviceStage extends Stage {
       row.append(label, input, document.createElement('output'));
       find('.sensor-list').appendChild(row);
     }
-    for (const [key, icon] of [['motor','⚙'], ['buzzer','♪'], ['heater','♨']]) {
-      const item = document.createElement('div'); item.className = 'output-item'; item.dataset.output = key;
-      item.innerHTML = '<span aria-hidden="true" class="output-icon">' + icon + '</span><strong>' + OUTPUT_LABELS[key] + '</strong><span class="output-value"></span>';
-      find('.output-grid').appendChild(item);
+    this.apparatus = {};
+    for (const key of Object.keys(OUTPUT_LABELS)) {
+      const item = outputIllustration(key);
+      this.apparatus[key] = item;
+      find(key === 'led' ? '.apparatus-rack' : '.output-grid').appendChild(item);
     }
     find('[data-record]').onclick = () => this.record();
     find('[data-copy]').onclick = event => this.copyRecords(event.currentTarget);
@@ -122,6 +178,27 @@ export class DeviceStage extends Stage {
   }
 
   setProgram(project, running, onChange) {
+    const outputs = new Set(), sensors = new Set();
+    walkBlocks(project, block => {
+      if (block.type === 'device_led_color') outputs.add('led');
+      if (block.type === 'device_out_set' || block.type === 'device_out_power') {
+        if (block.inputs?.OUTPUT) Object.keys(OUTPUT_LABELS).forEach(key => outputs.add(key));
+        else outputs.add(block.fields.OUTPUT);
+      }
+      if (block.type === 'device_sensor' || block.type === 'device_sensor_on') sensors.add(block.fields.SENSOR);
+    });
+    if (!outputs.size) { outputs.add('led'); outputs.add('motor'); }
+    for (const [key, item] of Object.entries(this.apparatus)) {
+      const shelf = this.root.querySelector(outputs.has(key) ? '.apparatus-rack' : '.output-grid');
+      if (item.parentNode !== shelf) shelf.appendChild(item);
+    }
+    for (const key of ['light', 'temp', 'sound', 'switch']) {
+      const row = this.inputs[key].parentNode;
+      const shelf = this.root.querySelector(sensors.has(key) && key !== 'light' ? '.main-sensors' : '.sensor-list');
+      if (row.parentNode !== shelf) shelf.appendChild(row);
+    }
+    // Keep the light and occupancy controls together for experimenting with LED rules.
+    this.root.querySelector('.scene-options').hidden = sensors.size > 0 && !sensors.has('light') && !sensors.has('motion') && !outputs.has('led');
     // Show an editable rule only when this single loop describes the complete LED program.
     const blocks = project.scripts.length === 1 ? project.scripts[0].blocks : [];
     const loop = blocks[1];
@@ -133,6 +210,7 @@ export class DeviceStage extends Stage {
     const labels = { light: '暗い（明るさ35未満）', motion: '人がいる', temp: '28度以上', sound: '音が55以上', switch: 'スイッチがオン' };
     this.ruleMembers = members.every(item => item?.type === 'device_sensor_on' && Object.hasOwn(labels, item.fields.SENSOR) && !item.inputs?.SENSOR) ? members : [];
     this.onConditionChange = onChange;
+    this.ruleBox.parentElement.hidden = !this.ruleMembers.length;
     const signature = this.ruleMembers.map(item => item.fields.SENSOR).join(',');
     if (this.ruleSignature !== signature) {
       this.ruleSignature = signature;
@@ -168,6 +246,7 @@ export class DeviceStage extends Stage {
   }
   reset() {
     this.outputs = { led: 0, motor: 0, buzzer: 0, heater: 0 };
+    this.ledColor = '#ffd23f';
     this.useSeconds = 0;
     this.energy = 0;
     this.autoTime = 0;
@@ -238,15 +317,20 @@ export class DeviceStage extends Stage {
   }
 
   render() {
-    const stage = this;
-    Object.keys(this.outputs).forEach(function (key) {
-      const item = stage.root.querySelector('[data-output="' + key + '"]');
-      if (!item) return;
-      const on = stage.outputs[key] > 0;
+    Object.entries(this.apparatus).forEach(([key, item]) => {
+      const power = this.outputs[key], on = power > 0;
+      if (item.power === power && (key !== 'led' || item.color === this.ledColor)) return;
+      item.power = power;
       item.classList.toggle('is-on', on);
-      if (key === 'led') item.style.setProperty('--lamp', stage.ledColor);
+      if (key === 'led') {
+        item.color = this.ledColor;
+        item.style.setProperty('--lamp', this.ledColor);
+      }
+      item.style.setProperty('--power', String(power / 100));
+      if (key === 'motor' && on) item.style.setProperty('--turn-time', (2.3 - .019 * power) + 's');
       const output = item.querySelector('.output-value');
-      const value = key === 'led' ? (on ? 'ついている' : '消えている') : (on ? Math.round(stage.outputs[key]) + '%' : 'オフ');
+      const states = { led: ['消えている','ついている'], motor: ['止まっている','回転中'], buzzer: ['止まっている','オン'], heater: ['切れている','加熱中'] };
+      const value = states[key][Number(on)] + (on && (key !== 'led' || power < 100) ? ' ' + Math.round(power) + '%' : '');
       if (output.textContent !== value) output.textContent = value;
     });
     const use = this.root.querySelector('.use-time'); if (use) use.textContent = this.useSeconds.toFixed(1) + ' びょう';
