@@ -9,6 +9,7 @@ import { ScriptCanvas } from './ui/canvas.js';
 import { DragController } from './ui/drag.js';
 import { DialogManager } from './ui/dialogs.js';
 import { Toolbar } from './ui/toolbar.js';
+import { renderGrowth, showGrowth, showGrowthAward } from './ui/growth.js';
 import { renderBlock } from './ui/blockview.js';
 import { LEVELS, UI } from './ui/labels.js';
 import { TurtleStage } from './stages/turtle.js';
@@ -45,6 +46,25 @@ let successPlayed = false;
 let runCompleted = false;
 let stoppedByUser = false;
 let stuckDialogOpen = false;
+let replayProjectId = null;
+const replaySessionKey = 'bs.activeReplay';
+
+function setReplayProject(id) {
+  replayProjectId = id;
+  try {
+    if (id) sessionStorage.setItem(replaySessionKey, id);
+    else sessionStorage.removeItem(replaySessionKey);
+  } catch { /* The current tab can still finish the challenge. */ }
+}
+
+function refreshGrowth() {
+  const growth = campaign.growth();
+  renderGrowth(growth);
+  const replay = document.getElementById('replay-mission');
+  const xp = campaign.nextAwardXP(project.missionId);
+  replay.textContent = xp ? 'もう一度挑戦（＋' + xp + ' XP）' : 'もう一度挑戦';
+  return growth;
+}
 
 const turtleStage = new TurtleStage(document.getElementById('pen-canvas'), document.getElementById('actor-canvas'));
 const spriteStage = new SpriteStage(document.getElementById('sprite-canvas'), function () { return project; });
@@ -178,10 +198,11 @@ function restoreWork(raw) {
   return work;
 }
 
-function setProject(next, preserveMission) {
+function setProject(next, preserveMission, replay = false) {
   stopRun(false);
   deviceStage.clearRecords();
   project = restoreWork(next);
+  setReplayProject(replay ? project.id : null);
   // A shared URL names the work it opened. A later selection supersedes it.
   if (location.hash.startsWith('#p=') || location.hash.startsWith('#m=')) {
     const url = new URL(location.href); url.hash = '';
@@ -199,6 +220,7 @@ function setProject(next, preserveMission) {
   }
   activeStage().reset();
   renderAll();
+  refreshGrowth();
 }
 
 function selectionState(state) {
@@ -269,7 +291,7 @@ function makeScheduler() {
       runCompleted = true;
       updateToolbar();
       updateMissionProgress();
-      toast(UI.complete);
+      if (!successPlayed) toast(UI.complete);
     },
     onStuck: async function () {
       if (!running || stuckDialogOpen || dialogs.active) return;
@@ -459,6 +481,21 @@ function showExample() {
     content, buttons: [{ label: '自分の課題にもどる', primary: true, value: true }] });
 }
 
+async function awardExpedition(mission, attemptId, isReplay) {
+  const record = () => campaign.award(mission.id, attemptId, isReplay);
+  // Two tabs may finish different attempts of the same mission at the same time.
+  // Serialize their awards so each toast also shows the correct diminishing reward.
+  const award = navigator.locks?.request
+    ? await navigator.locks.request('bs.expedition.xp', record).catch(record)
+    : record();
+  if (replayProjectId === attemptId && (award || campaign.hasAwarded(mission.id, attemptId))) setReplayProject(null);
+  if (award) {
+    audio.effect('success');
+    showGrowthAward(award, mission, refreshGrowth());
+  }
+  if (project.id === attemptId) updateMissionProgress(false);
+}
+
 function updateMissionProgress(allowAward = true) {
   const mission = activeMission();
   const id = !customMission && mission && mission.id === project.missionId &&
@@ -468,17 +505,23 @@ function updateMissionProgress(allowAward = true) {
   const verified = results.length > 0 && done === results.length && (runCompleted || (running && project.stage === 'device')) && (project.stage !== 'field' || fieldStage.completed);
   if (allowAward && verified && !successPlayed) {
     successPlayed = true;
-    const stamped = id && campaign.complete(id);
-    audio.effect('success');
-    toast(stamped ? 'クリア！ 探検マップに王冠がついたよ' : 'お題をクリア！');
+    const info = campaign.info(id);
+    if (info?.unlocked && !isMissionRestricted(mission, levelLocked ? project.level : 0)) {
+      awardExpedition(mission, project.id, replayProjectId === project.id);
+    } else {
+      audio.effect('success');
+      toast('お題をクリア！');
+    }
   }
   const info = campaign.info(id);
   const rank = document.getElementById('mission-rank');
   rank.textContent = mission?.difficulty ? '★' + mission.difficulty + '　' +
     (info?.repeat ? '同じお題を白紙から' : mission.buildFromBlank ? '白紙からつくる' : 'お手本で試す') : '';
   const count = document.getElementById('goal-count');
-  const label = info && !info.unlocked ? '保存作品でれんしゅう中（王冠は探検順）' : info?.cleared ? 'クリア済み' : results.length ? 'できた条件 ' + done + ' / ' + results.length : '';
+  const label = info && !info.unlocked ? '保存作品でれんしゅう中（王冠は探検順）' : replayProjectId === project.id ? '再挑戦中' : info?.cleared ? 'クリア済み' : results.length ? 'できた条件 ' + done + ' / ' + results.length : '';
   renderStampLabel(count, label, Boolean(info?.cleared));
+  const replay = document.getElementById('replay-mission');
+  replay.hidden = !info?.cleared || replayProjectId === project.id || isMissionRestricted(mission, levelLocked ? project.level : 0);
   const next = document.getElementById('next-mission');
   const blank = document.getElementById('blank-mission');
   blank.hidden = !(info?.cleared && info.rank === 1 && !info.repeat);
@@ -526,7 +569,7 @@ function startMission(mission) {
   allowedBlocks = mission.allowedBlocks || null;
   const state = campaign.info(mission.id);
   const draft = state && !state.cleared ? store.findMission(mission) : null;
-  setProject((draft && !isLegacyStarter(draft)) ? draft : createProject({ ...missionProjectData(mission), author: draft?.author || store.author }), true);
+  setProject((draft && !isLegacyStarter(draft)) ? draft : createProject({ ...missionProjectData(mission), author: draft?.author || store.author }), true, Boolean(state?.cleared));
   saveNow(false);
   showMobileView(mission.buildFromBlank && mission.stage !== 'field' ? 'palette' : mission.stage === 'device' ? 'stage' : 'edit');
   document.getElementById('mission-title').scrollIntoView({block:'nearest'});
@@ -626,7 +669,7 @@ async function showSaveDialog() {
   const ruby = document.createElement('button'); ruby.type = 'button'; ruby.textContent = rubyEnabled() ? 'ルビを オフ' : 'ルビを オン'; ruby.addEventListener('click', function () { localStorage.setItem('bs.ruby', rubyEnabled() ? '0' : '1'); ruby.textContent = rubyEnabled() ? 'ルビを オフ' : 'ルビを オン'; editor.render(); palette.render(); }); settingsRow.appendChild(ruby);
   const sound = document.createElement('button'); sound.type = 'button'; sound.textContent = audio.muted ? 'おとを オン' : 'おとを オフ'; sound.addEventListener('click', function () { audio.setMuted(!audio.muted); sound.textContent = audio.muted ? 'おとを オン' : 'おとを オフ'; }); settingsRow.appendChild(sound);
   const clear = document.createElement('button'); clear.type = 'button'; clear.textContent = 'この たんまつの データを ぜんぶ けす';
-  clear.addEventListener('click', async function () { if (await dialogs.askYesNo('データを ぜんぶ けす？', 'この端末の作品・なまえ・探検スタンプが消えます。', true)) { store.clearAll(); campaign.reset(); dialogs.close(true); setProject(createProject(missionProjectData(getMission('intro_square')))); toast('この たんまつの データを けしました'); } });
+  clear.addEventListener('click', async function () { if (await dialogs.askYesNo('データを ぜんぶ けす？', 'この端末の作品・なまえ・王冠・経験値・称号が消えます。', true)) { store.clearAll(); campaign.reset(); dialogs.close(true); setProject(createProject(missionProjectData(getMission('intro_square')))); toast('この たんまつの データを けしました'); } });
   settings.append(settingsRow, clear); content.appendChild(settings);
   dialogs.show({ title: 'ほぞん・ひらく', message: '5びょうごとに じどうで ほぞんしています。たいせつな さくひんは ファイルにも のこそう。', content: content, wide: true, buttons: [{ label: 'とじる', value: false, primary: true }] });
 }
@@ -792,12 +835,21 @@ async function loadInitial() {
     window.history.replaceState(window.history.state, '', url);
   }
   if (!explicit) {
+    // Only an unfinished replay deliberately started in this tab may resume as a replay.
+    let retryId = null;
+    try { retryId = sessionStorage.getItem(replaySessionKey); } catch { /* Storage is optional. */ }
+    const retry = retryId && store.load(retryId);
+    if (retry && campaign.info(retry.missionId)?.cleared && !isMissionRestricted(getMission(retry.missionId), limit) &&
+        !campaign.hasAwarded(retry.missionId, retryId)) {
+      initial = retry;
+      replayProjectId = retryId;
+    }
     const savedMission = initial?.missionId ? getMission(initial.missionId) : null;
     const savedInfo = campaign.info(initial?.missionId);
     const savedExpedition = savedInfo && initial.stage === savedMission.stage &&
       (initial.stage !== 'field' || initial.fieldScene === (savedMission.baseId || savedMission.id));
     const restricted = savedMission && isMissionRestricted(savedMission, limit);
-    if (!initial || restricted || (savedExpedition && savedInfo.cleared)) {
+    if (!initial || restricted || (savedExpedition && savedInfo.cleared && !replayProjectId)) {
       const frontier = campaign.firstOpen();
       const upcoming = frontier ? getMission(frontier) : null;
       if (upcoming && !isMissionRestricted(upcoming, limit)) {
@@ -818,6 +870,7 @@ async function loadInitial() {
       initial = createProject({ ...missionProjectData(savedMission), author: initial.author || store.author });
     }
   }
+  if (!replayProjectId) setReplayProject(null);
   if (levelFromURL) initial.level = Math.max(1, Math.min(5, levelFromURL));
   project = restoreWork(initial);
   if (!project.author) project.author = store.author;
@@ -828,6 +881,7 @@ async function loadInitial() {
   const font = Number(localStorage.getItem('bs.font')) || 0; if (font === 1) document.body.classList.add('font-large'); if (font === 2) document.body.classList.add('font-xlarge');
   history.reset(project);
   renderAll();
+  refreshGrowth();
   autosave(store, function () { return project; }, null, function () { toast('じどうほぞん できませんでした', true); });
   registerWebMCP();
   if (showTrail) {
@@ -874,8 +928,21 @@ function openMap() {
 }
 document.getElementById('atlas-missions').addEventListener('click', openMap);
 document.getElementById('show-example').addEventListener('click', showExample);
+function openGrowth() {
+  showGrowth(dialogs, campaign.growth(), area => {
+    campaign.chooseTitle(area);
+    return refreshGrowth();
+  });
+}
+document.getElementById('growth-btn').addEventListener('click', openGrowth);
+document.getElementById('replay-mission').addEventListener('click', () => {
+  const mission = activeMission();
+  if (!customMission && mission?.id === project.missionId && campaign.info(mission.id)?.cleared) startMission(mission);
+});
 window.addEventListener('storage', event => {
-  if (event.key !== null && event.key !== 'bs.expedition.v1' && !event.key.startsWith('bs.expedition.blank.')) return;
+  if (event.storageArea !== localStorage || (event.key !== null && !event.key.startsWith('bs.expedition.'))) return;
+  if (replayProjectId && (!campaign.info(project.missionId)?.cleared || campaign.hasAwarded(project.missionId, replayProjectId))) setReplayProject(null);
+  refreshGrowth();
   updateMissionProgress(false);
   if (document.querySelector('[data-expedition-map]')) openMap();
 });

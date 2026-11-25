@@ -1,7 +1,7 @@
 // Build replaces the release identifiers. Native ES modules are served at
 // their original same-origin URLs after the local worker installs the pack.
-const release = 'blockseed-expeditions-v3-adca7e3966e5';
-const pack = './modules-0620c711d2f01280.pack';
+const release = 'blockseed-expeditions-v3-c747f2b5fb57';
+const pack = './modules-3b16b9acfc76da26.pack';
 
 async function workerControlsPage() {
   if (!('serviceWorker' in navigator) || !('DecompressionStream' in window)) return false;

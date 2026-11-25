@@ -12,11 +12,57 @@ const repeats = places.map(place => place.missions[0] + '_blank');
 export const crownTotal = stampTotal + repeats.length;
 const progressKey = 'bs.expedition.v1';
 const repeatKey = 'bs.expedition.blank.';
+const attemptKey = 'bs.expedition.xp.attempt.';
+const titleKey = 'bs.expedition.xp.title';
+export const firstClearXP = Object.freeze({ guided: 20, blank: 30, applied: 40, final: 60 });
+const firstXP = new Map(places.flatMap(({ missions: [guide, applied, final] }) =>
+  [[guide, firstClearXP.guided], [guide + '_blank', firstClearXP.blank],
+    [applied, firstClearXP.applied], [final, firstClearXP.final]]));
+
+const titlesByArea = {
+  patagonia: ['風の谷の地図職人', '歩数とくり返しを使って、長方形の道を描けた。'],
+  namib: ['砂丘の図形使い', '曲がる角度とくり返す回数を決めて、正多角形を描けた。'],
+  yakushima: ['森のあかり番', '暗さと人の動き、2つの条件を組み合わせてライトを点けられた。'],
+  mulu: ['こだまの指揮者', '音と休みの順番を記録して、同じリズムを再生できた。'],
+  galapagos: ['ゾウガメの写真家', 'カメを見分けて、1匹につき1枚だけ撮影できた。'],
+  uyuni: ['水鏡の絵かき', '星が動くたびに、水面の星を対称な位置に描けた。'],
+  palau: ['潮読みの船長', '潮の高さで動きを切り替えて、島に荷物を届けられた。'],
+  aoraki: ['雲間の星ハンター', '雲が晴れるまで待って、星の写真を集められた。'],
+  mcmurdo: ['南極ローバー隊長', '電池に合わせて走り方を変え、土の記録を基地に届けられた。']
+};
+const expeditionTitles = places.map(({ area, title: place }) => {
+  const [name, skill] = titlesByArea[area];
+  return { area, place, name, skill };
+});
+
+function levelProgress(total) {
+  let within = total, level = 1, needed = 20;
+  while (within >= needed * 5) {
+    within -= needed * 5;
+    level += 5;
+    needed += 10;
+  }
+  level += Math.floor(within / needed);
+  within %= needed;
+  return { total, level, within, needed, remaining: needed - within };
+}
+
+function missionExperience(id, replays) {
+  let reward = firstXP.get(id), total = reward;
+  while (replays > 0 && reward > 1) {
+    reward = Math.max(1, Math.floor(reward / 2));
+    total += reward;
+    replays--;
+  }
+  return total + replays;
+}
 
 export function createCampaign(storage) {
   let count = 0;
   let saved = true;
   const earned = new Set();
+  let receipts = new Map();
+  let equippedArea = null;
   if (storage === undefined) {
     try { storage = globalThis.localStorage; } catch { storage = null; }
   }
@@ -28,8 +74,46 @@ export function createCampaign(storage) {
     } catch { saved = false; }
   }
   function write() {
-    try { storage.setItem(progressKey, String(count)); saved = true; }
-    catch { saved = false; }
+    persist(progressKey, String(count));
+  }
+  function persist(key, value) {
+    if (!saved) return;
+    try { storage.setItem(key, value); } catch { saved = false; }
+  }
+
+  // Each attempt has its own key. Simultaneous replays in two tabs cannot
+  // overwrite one another. Sum rewards from distinct receipts, never a running balance.
+  function refreshReceipts() {
+    if (!storage || !saved) return;
+    try {
+      equippedArea = storage.getItem(titleKey);
+      if (typeof storage.key !== 'function') return;
+      const current = new Map();
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key?.startsWith(attemptKey)) current.set(key.slice(attemptKey.length), storage.getItem(key));
+      }
+      receipts = current;
+    } catch { saved = false; }
+  }
+  function receiptFor(attemptId) {
+    if (storage && saved) {
+      try { return storage.getItem(attemptKey + attemptId); } catch { saved = false; }
+    }
+    return receipts.get(attemptId);
+  }
+  function replayCounts() {
+    const counts = new Map();
+    for (const receipt of receipts.values()) {
+      if (!receipt?.startsWith('replay/')) continue;
+      const id = receipt.slice('replay/'.length);
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    return counts;
+  }
+  function equip(area) {
+    equippedArea = area;
+    persist(titleKey, area);
   }
   function hasRepeat(id) {
     if (storage && saved) {
@@ -62,7 +146,7 @@ export function createCampaign(storage) {
       if (repeats.includes(id)) {
         if (!this.isUnlocked(id) || hasRepeat(id)) return false;
         earned.add(id);
-        try { storage.setItem(repeatKey + id, 'earned'); } catch { saved = false; }
+        persist(repeatKey + id, 'earned');
         return true;
       }
       if (count >= trail.length || trail[count] !== id) return false;
@@ -70,9 +154,70 @@ export function createCampaign(storage) {
       write();
       return true;
     },
+    growth() {
+      refresh();
+      refreshReceipts();
+      const replays = replayCounts();
+      // A pre-existing crown is always worth one first clear. Optional blank
+      // crowns have their own records, independent of the 27 main trail steps.
+      let total = 0;
+      for (const [i, id] of trail.slice(0, count).entries()) {
+        total += missionExperience(id, replays.get(id) || 0);
+        if (i % 3 === 0 && hasRepeat(id + '_blank')) {
+          const repeat = id + '_blank';
+          total += missionExperience(repeat, replays.get(repeat) || 0);
+        }
+      }
+      const titles = expeditionTitles.slice(0, Math.floor(count / 3));
+      const equipped = titles.find(title => title.area === equippedArea) || titles.at(-1) || null;
+      return { ...levelProgress(total), titles, equipped };
+    },
+    chooseTitle(area) {
+      refresh();
+      if (!expeditionTitles.slice(0, Math.floor(count / 3)).some(title => title.area === area)) return false;
+      equip(area);
+      return true;
+    },
+    hasAwarded(id, attemptId) {
+      const receipt = receiptFor(attemptId);
+      return receipt === 'first/' + id || receipt === 'replay/' + id;
+    },
+    nextAwardXP(id) {
+      const info = this.info(id);
+      if (!info) return null;
+      if (!info.cleared) return firstXP.get(id);
+      refreshReceipts();
+      const nextReplay = (replayCounts().get(id) || 0) + 1;
+      return Math.max(1, Math.floor(firstXP.get(id) / (2 ** nextReplay)));
+    },
+    award(id, attemptId, replayAllowed = false) {
+      const info = this.info(id);
+      if (!info?.unlocked || typeof attemptId !== 'string' || !attemptId || (info.cleared && !replayAllowed)) return null;
+      const firstClear = !info.cleared;
+      const receipt = (firstClear ? 'first/' : 'replay/') + id;
+      const previous = receiptFor(attemptId);
+      // A first receipt is written before its crown. If interrupted between
+      // writes, finishing this same attempt can restore the missing crown.
+      if (previous && !(firstClear && previous === receipt)) return null;
+      const before = this.growth();
+      const xp = this.nextAwardXP(id);
+      receipts.set(attemptId, receipt);
+      persist(attemptKey + attemptId, receipt);
+      if (firstClear && !this.complete(id)) return null;
+      const title = firstClear && info.rank === 3 ? expeditionTitles.find(item => item.area === info.area) : null;
+      if (title) equip(title.area);
+      return { xp, firstClear, levelUp: levelProgress(before.total + xp).level > before.level, title };
+    },
     reset() {
+      refreshReceipts();
+      const receiptIds = [...receipts.keys()];
+      receipts.clear(); equippedArea = null;
       count = 0; write(); earned.clear();
-      try { for (const id of repeats) storage?.removeItem?.(repeatKey + id); } catch { saved = false; }
+      try {
+        for (const id of repeats) storage?.removeItem?.(repeatKey + id);
+        for (const attemptId of receiptIds) storage?.removeItem?.(attemptKey + attemptId);
+        storage?.removeItem?.(titleKey);
+      } catch { saved = false; }
     },
     get persisted() { return saved && Boolean(storage); }
   };

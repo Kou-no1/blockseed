@@ -44,6 +44,7 @@
           <output id="goal-count"></output>
           <button id="blank-mission" class="continue-btn" type="button" hidden>同じお題を白紙からつくる</button>
           <button id="next-mission" class="continue-btn" type="button" hidden></button>
+          <button id="replay-mission" type="button" hidden>もう一度挑戦</button>
         </div>
         <div id="goal-details" hidden><p id="mission-hint"></p><ul id="goal-checks"></ul></div>
       </div>
@@ -53,7 +54,14 @@
           <strong id="place-title">トーレス・デル・パイネ</strong>
           <span id="place-latin" lang="en">Torres del Paine National Park</span>
         </div>
-        <button id="destination-btn" type="button">探検マップ</button>
+        <div class="expedition-controls">
+          <button id="growth-btn" class="growth-badge" type="button" aria-haspopup="dialog" aria-label="探検レベルと称号を見る">
+            <strong id="growth-level">Lv.1</strong>
+            <span class="growth-badge-detail"><span id="growth-title">探検レベル</span><span class="growth-gauge" aria-hidden="true"><i></i></span></span>
+            <span id="growth-remaining">あと20 XP</span>
+          </button>
+          <button id="destination-btn" type="button">探検マップ</button>
+        </div>
       </div>
     </section>
 
