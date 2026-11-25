@@ -117,7 +117,15 @@ body { background: var(--navy); overflow: auto; }
 .trail-head h3 { flex: 1; margin: 0; }
 .trail-head span:last-child, .site-list small { font-size: .81rem; }
 .site-list button { width: 100%; }
+.site-list button > small { flex-shrink: 0; white-space: nowrap; }
 .site-list button:disabled { opacity: 1; color: #57697c; background: #e8eef4; }
+.mission-limit { display: block; font-weight: 500; }
+.site-list .has-crown, #goal-count.has-crown {
+  display: inline-flex; flex: none; align-items: center; gap: .3em;
+  padding: 2px 7px; color: #69420d; background: #fff1c9; border: 1px solid #dfbd76;
+  border-radius: 6px; font-weight: 750; white-space: nowrap;
+}
+.mission-crown { width: 1.35em; height: 1.35em; flex: none; fill: #f8c652; stroke: #70480d; stroke-width: 1.7; stroke-linejoin: round; stroke-linecap: round; }
 .site-list p { font-size: .86rem; }
 .site-list summary { cursor: pointer; padding: 6px; color: #2b4e70; font-size: .88rem; }
 .site-list ol { margin: 0 0 6px; line-height: 1.7; }
@@ -197,6 +205,16 @@ body { background: var(--navy); overflow: auto; }
 }
 #field-lines label { display: grid; gap: 6px; color: #223e5c; font-size: 1rem; font-weight: 700; }
 #field-lines select { width: 100%; min-height: 46px; padding: 7px 10px; border: 1px solid #8fa8c1; background: #edf3f8; color: #193450; border-radius: 6px; font: inherit; }
+#field-lines .field-command-palette { display: flex; flex-wrap: wrap; gap: 6px; }
+#field-lines :is(.field-command-palette,.field-command-program) h3 { flex: 0 0 100%; margin: 0 0 6px; font-size: .93rem; color: #243f5e; }
+.field-command-palette button,.field-command-actions button { min-height: 44px; padding: 5px 10px; border: 1px solid #9eb0c3; border-radius: 6px; background: #fff; color: #234c79; font: inherit; font-size: .87rem; font-weight: 650; }
+.field-command-palette button:enabled:hover,.field-command-actions button:enabled:hover { background: #dfecf8; }
+.field-command-palette button:disabled,.field-command-actions button:disabled { opacity: .55; }
+.field-command-program { min-width: 0; border-top: 1px solid var(--line); padding-top: 14px; }
+.field-command-empty { margin: 5px 0 0; padding: 12px; border: 1px dashed #8fa8c1; border-radius: 6px; line-height: 1.55; color: #425a73; }
+.field-command-program ol { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; margin: 0; padding-left: 1.7em; }
+.field-command-program li::marker { color: #34516f; font-weight: 750; }
+.field-command-actions { display: flex; flex-wrap: wrap; gap: 4px; margin: 5px 0 0; }
 .field-mode #workspace { display: grid; grid-template-columns: minmax(225px,.74fr) minmax(0,1.45fr); grid-template-rows: auto; height: auto; min-height: 0; align-items: start; }
 .field-mode #editor-panel,.field-mode #stage-panel { display: flex !important; grid-row: auto; grid-column: auto; height: auto; min-height: 0; }
 .field-mode #editor-panel { flex-direction: column; }
@@ -223,3 +241,8 @@ body { background: var(--navy); overflow: auto; }
   .field-mode #field-lines { gap: 9px; padding: 12px; }
   .field-mode #stage { min-height: 0; padding: 6px; }
 }
+.mission-example { display: grid; gap: 16px; }
+.mission-example ol { padding-inline-start: 2em; margin-block: 4px; }
+.mission-example li { padding: 8px 4px; line-height: 1.5; }
+.example-stack { display: grid; gap: 2px; }
+.example-stack .blk { pointer-events: none; touch-action: auto; user-select: text; }

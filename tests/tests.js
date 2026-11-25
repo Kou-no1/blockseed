@@ -142,15 +142,15 @@ test('探検課題は形とセンサーの両状態を確かめる', function ()
   const mission = getMission('sossusvlei_survey');
   const project = createProject({ scripts: [{ id: 'route', blocks: structuredClone(mission.starter) }] });
   const repeat = project.scripts[0].blocks.find(item => item.type === 'control_repeat');
-  equal(repeat.fields.TIMES, 2);
+  equal(repeat.fields.TIMES, 3);
   function draw() {
     const stage = mockStage();
     exhaust(new Interpreter({ project, stage, audio: {} }).runBlocks(project.scripts[0].blocks.slice(1), 0));
     return evaluateMission(mission, project, stage.state).every(item => item.passed);
   }
-  equal(draw(), false);
-  repeat.fields.TIMES = 3;
   equal(draw(), true);
+  repeat.fields.TIMES = 2;
+  equal(draw(), false);
 
   const canopy = getMission('yakushima_canopy');
   const sensorProject = createProject({ stage: 'device', scripts: [{ id: 'sensor', blocks: canopy.starter }] });

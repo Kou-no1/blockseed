@@ -154,6 +154,10 @@ export class ScriptCanvas {
   addType(type, targetId, placement, slotName) {
     if (this.options.isRunning()) return false;
     const definition = getDefinition(type);
+    if (this.project.buildFromBlank && definition.shape !== 'hat' && !this.project.scripts.some(script => script.blocks.length)) {
+      this.options.toast('まず「はじまり」から、プログラムを始めるブロックを選ぼう。');
+      return false;
+    }
     const block = createBlock(type, definition);
     for (const arg of definition.args || []) {
       const items = arg.type === 'var' ? this.project.vars : arg.name === 'LIST' ? this.project.lists : arg.type === 'func' ? this.project.funcs : null;
@@ -187,7 +191,7 @@ export class ScriptCanvas {
     let destination = null;
     if (targetLocation && placement !== 'end') destination = preferredInsertLocation(targetLocation, getDefinition(targetLocation.block.type), placement || this.insertMode);
     if (!destination) {
-      let script = targetLocation?.script || this.project.scripts[0];
+      let script = targetLocation?.script || this.project.scripts.find(item => item.blocks.length) || this.project.scripts[0];
       if (!script) { script = { id: makeId('s'), x: 40, y: 40, blocks: [] }; this.project.scripts.push(script); }
       if (!script.blocks.length) script.blocks.push(createBlock('event_start', getDefinition('event_start')));
       destination = { list: script.blocks, index: script.blocks.length };
@@ -212,7 +216,7 @@ export class ScriptCanvas {
     if (location.kind === 'input') location.parent.inputs[location.key] = null;
     else location.list.splice(location.index, 1);
     const script = location.script;
-    if (script && script.blocks.length === 0 && this.project.scripts.length > 1) this.project.scripts.splice(this.project.scripts.indexOf(script), 1);
+    if (script && script.blocks.length === 0 && (this.project.buildFromBlank || this.project.scripts.length > 1)) this.project.scripts.splice(this.project.scripts.indexOf(script), 1);
     this.selectedId = (location.list?.[location.index] || location.list?.[location.index - 1] || location.parent)?.id || null;
     this.selectedSlot = null;
     this.changed(UI.deleted);

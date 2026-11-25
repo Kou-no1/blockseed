@@ -40,7 +40,9 @@
         <p id="mission-progress"></p>
         <div class="briefing-actions">
           <button id="goal-details-btn" type="button" aria-expanded="false" aria-controls="goal-details">ヒントとクリア条件</button>
+          <button id="show-example" type="button" hidden>見本を見る</button>
           <output id="goal-count"></output>
+          <button id="blank-mission" class="continue-btn" type="button" hidden>同じお題を白紙からつくる</button>
           <button id="next-mission" class="continue-btn" type="button" hidden></button>
         </div>
         <div id="goal-details" hidden><p id="mission-hint"></p><ul id="goal-checks"></ul></div>
@@ -71,7 +73,7 @@
         </select>
       </div>
       <div class="toolbar__group">
-        <button id="level-btn" class="tool-btn tool-btn--level" type="button">★1 たね</button>
+        <button id="level-btn" class="tool-btn tool-btn--level" type="button" title="使える道具をえらぶ">道具 1</button>
         <button id="undo-btn" class="icon-btn" type="button" title="もどす" aria-label="もどす" disabled>↶</button>
         <button id="redo-btn" class="icon-btn" type="button" title="やりなおす" aria-label="やりなおす" disabled>↷</button>
       </div>

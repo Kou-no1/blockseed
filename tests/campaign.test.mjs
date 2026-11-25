@@ -10,9 +10,41 @@ const ids = [
 ];
 
 function localStore(initial = null) {
-  let value = initial;
-  return { getItem: () => value, setItem: (_, next) => { value = next; } };
+  const values = new Map([['bs.expedition.v1', initial]]);
+  return { getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
 }
+
+test('each blank repeat unlocks after its example and earns its own persistent crown', () => {
+  const storage = localStore();
+  const game = createCampaign(storage);
+  const otherTab = createCampaign(storage);
+  const repeatIds = ids.filter((_, i) => i % 3 === 0).map(id => id + '_blank');
+  assert.equal(game.remainingRepeat(), null);
+  assert.equal(game.complete(repeatIds[0]), false);
+  game.complete(ids[0]);
+  assert.equal(game.remainingRepeat(), repeatIds[0]);
+  assert.equal(otherTab.complete(repeatIds[0]), true);
+  assert.equal(game.info(repeatIds[0]).cleared, true);
+  assert.equal(game.complete(repeatIds[0]), false);
+  assert.equal(storage.getItem('bs.expedition.v1'), '1');
+  assert.equal(game.firstOpen(), ids[1]);
+  assert.equal(game.remainingRepeat(), null);
+
+  storage.setItem('bs.expedition.v1', '27');
+  for (const id of repeatIds.slice(1)) {
+    assert.equal(otherTab.remainingRepeat(), id);
+    assert.equal(game.info(id).cleared, false);
+    assert.equal(game.complete(id), true);
+  }
+  assert.equal(createCampaign(storage).remainingRepeat(), null);
+  for (const id of [...ids, ...repeatIds]) assert.equal(otherTab.info(id).cleared, true);
+  game.reset();
+  assert.equal(otherTab.firstOpen(), ids[0]);
+  assert.equal(otherTab.isUnlocked(repeatIds[0]), false);
+  game.complete(ids[0]);
+  assert.equal(otherTab.info(repeatIds[0]).cleared, false);
+});
 
 test('a new explorer earns 27 stamps in order, including each destination unlock', () => {
   const storage = localStore();

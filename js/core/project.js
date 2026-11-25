@@ -46,6 +46,7 @@ export function createProject(options) {
     id: settings.id || makeId('p'),
     name: settings.name || 'パタゴニアの観測ルート',
     missionId: typeof settings.missionId === 'string' ? settings.missionId.slice(0, 80) : null,
+    ...(settings.buildFromBlank === true ? { buildFromBlank: true } : {}),
     author: settings.author || '',
     level: clampLevel(settings.level || 1),
     stage: ['turtle', 'sprite', 'device', 'field'].includes(settings.stage) ? settings.stage : 'turtle',
@@ -99,6 +100,7 @@ export function normalizeProject(source) {
   base.id = typeof source.id === 'string' ? source.id : makeId('p');
   base.name = typeof source.name === 'string' ? source.name.slice(0, 80) : base.name;
   base.missionId = typeof source.missionId === 'string' ? source.missionId.slice(0, 80) : null;
+  if (source.buildFromBlank === true) base.buildFromBlank = true;
   base.author = typeof source.author === 'string' ? source.author.slice(0, 80) : '';
   base.level = clampLevel(source.level);
   base.stage = ['turtle', 'sprite', 'device', 'field'].includes(source.stage) ? source.stage : 'turtle';

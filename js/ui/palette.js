@@ -16,6 +16,12 @@ export class Palette {
 
   render() {
     const state = this.options.getState();
+    if (state.project.buildFromBlank && state.project.id !== this.lastProjectId && !state.project.scripts.some(script => script.blocks.length)) {
+      this.category = 'event';
+      this.query = '';
+      if (this.searchElement) this.searchElement.value = '';
+    }
+    this.lastProjectId = state.project.id;
     const visibleCategories = categories.filter(function (category) {
       return listDefinitions(state.level, state.stage, category.id, state.allowedBlocks).length > 0;
     });

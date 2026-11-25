@@ -112,10 +112,10 @@ const advanced = [
 const expeditions = [
   {
     id: 'sossusvlei_survey', area: 'namib', rank: 1, title: 'すな山を 三角にむすぼう', grade: '小3〜', subject: '探検', unit: '回数と角度', level: 2, stage: 'turtle',
-    goal: '線が2本で止まるよ。くり返す回数を変えて、三角形をとじよう。',
-    hints: ['まず実行して、足りない辺を見つけよう。', '曲がる角度は120度のまま、くり返す回数を変えよう。'],
+    goal: '見本をうごかして、同じ長さの3本の道が三角形になるところを観察しよう。',
+    hints: ['1本すすむたびに、どちらに何度曲がるか見てみよう。'],
     allowedBlocks: ['event_start', 'pen_down', 'pen_clear', 'turtle_forward', 'turtle_right', 'turtle_left', 'control_repeat'],
-    starter: polygonStarter(3, 2),
+    starter: polygonStarter(3),
     check: { kind: 'turtlePath', polygon: { sides: 3, tolerance: 6, closed: true }, required: ['control_repeat'] }
   },
   {
@@ -136,23 +136,21 @@ function routeMission(id, area, rank, title, goal, hint, starter, polygon) {
 }
 
 const rectangle = polygonStarter(4, 2, 40);
-rectangle[2].body.push(block('turtle_forward', { STEPS: 40 }), block('turtle_right', { DEG: 90 }));
-const night = deviceStarter('both');
-night[1].body[0].inputs.COND.inputs.B.fields.SENSOR = 'motion';
+rectangle[2].body.push(block('turtle_forward', { STEPS: 80 }), block('turtle_right', { DEG: 90 }));
 
 const laterRoutes = [
   routeMission('paine_long_route', 'patagonia', 2, '大きな しかくを描こう',
     '道がみじかいよ。1本が80歩の しかくい道にしよう。',
-    '「50 すすむ」の ＋を3回おして、うごかそう。', polygonStarter(4, 4, 50), { sides: 4, lengths: [80] }),
+    'すすむ歩数を見てみよう。', polygonStarter(4, 4, 80), { sides: 4, lengths: [80] }),
   routeMission('paine_rectangle', 'patagonia', 3, 'ほそ長い 湖をかこもう',
     '40歩と80歩の道を かわりばんこに引いて、長方形をとじよう。',
     'くり返しの中に「40 すすむ」が2つ。片方だけを80にしよう。', rectangle, { sides: 4, lengths: [40, 80] }),
   routeMission('namib_dune_turn', 'namib', 2, '五角形の キャンプ',
     '5回曲がって正五角形を描こう。今の角度では、出発点にもどれないよ。',
-    'ひとまわりは360度。360を5でわった角度を「まわる」に入れよう。', polygonStarter(5, 5, 65, 90), { sides: 5 }),
+    'ひとまわりは360度。360を5でわった角度を「まわる」に入れよう。', polygonStarter(5), { sides: 5 }),
   routeMission('namib_hexagon', 'namib', 3, '六角形の たんけん路',
     '三角形の見本を、同じ長さの辺が6本ある正六角形に作りかえよう。',
-    '回数は6回。1回で曲がる角度は360度を6でわってみよう。', polygonStarter(3, 3, 55), { sides: 6 })
+    '回数は6回。1回で曲がる角度は360度を6でわってみよう。', polygonStarter(6), { sides: 6 })
 ];
 
 function sensorMission(id, rank, title, goal, hint, starter, rule) {
@@ -163,10 +161,22 @@ function sensorMission(id, rank, title, goal, hint, starter, rule) {
 const laterExperiments = [
   sensorMission('yakushima_visitor', 2, '人が来たら お出むかえ',
     '人がいるときだけライトをつけよう。「いる」と「いない」を両方試そう。',
-    '「LEDがつく条件」で「人がいる」をえらぼう。', deviceStarter('dark'), 'motion'),
+    '「LEDがつく条件」で「人がいる」をえらぼう。', deviceStarter('motion'), 'motion'),
   sensorMission('yakushima_night', 3, '夜の 森のあんない灯',
     '暗くて人がいるときだけ点灯。明るさと人を切りかえ、4通りとも試そう。',
-    '「LEDがつく条件」が2つとも「人がいる」だね。片方を「暗い」に変えよう。', night, 'both')
+    'ライトがつくための2つの条件を確かめよう。', deviceStarter('both'), 'both')
 ];
 
 export const missions = [intro[1], ...expeditions, ...laterRoutes, ...laterExperiments, intro[0], ...intro.slice(2), ...polygons, ...science, ...advanced];
+
+// These were the unfinished programs automatically placed by the earlier lessons.
+// Preserve their shapes so an edited save can always be distinguished from a new arrival.
+const oldRectangle = polygonStarter(4, 2, 40);
+oldRectangle[2].body.push(block('turtle_forward', { STEPS: 40 }), block('turtle_right', { DEG: 90 }));
+const oldNight = deviceStarter('both');
+oldNight[1].body[0].inputs.COND.inputs.B.fields.SENSOR = 'motion';
+export const legacyStarters = new Map([
+  ['paine_long_route', polygonStarter(4, 4, 50)], ['paine_rectangle', oldRectangle],
+  ['namib_dune_turn', polygonStarter(5, 5, 65, 90)], ['namib_hexagon', polygonStarter(3, 3, 55)],
+  ['yakushima_visitor', deviceStarter('dark')], ['yakushima_night', oldNight]
+]);

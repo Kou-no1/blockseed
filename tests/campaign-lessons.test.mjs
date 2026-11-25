@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProject } from '../js/core/project.js';
-import { getMission, evaluateMission, missionProjectData } from '../js/missions/missions.js';
+import { getExampleMission, evaluateMission, missionProjectData } from '../js/missions/missions.js';
 import { Interpreter } from '../js/runtime/interpreter.js';
 import { TurtleStage } from '../js/stages/turtle.js';
 import { DeviceStage } from '../js/stages/device.js';
 
 function fixture(id) {
-  const mission = getMission(id);
+  const mission = getExampleMission(id);
   assert.equal(mission.id, id);
   const project = createProject(missionProjectData(mission));
   assert.equal(project.missionId, id);
@@ -20,16 +20,12 @@ function passes(mission, project, stage) {
 }
 
 const geometry = [
-  ['intro_square', 'patagonia', 1, null],
-  ['paine_long_route', 'patagonia', 2, loop => { loop.body[0].fields.STEPS = 80; }],
-  ['paine_rectangle', 'patagonia', 3, loop => { loop.body[2].fields.STEPS = 80; }],
-  ['sossusvlei_survey', 'namib', 1, loop => { loop.fields.TIMES = 3; }],
-  ['namib_dune_turn', 'namib', 2, loop => { loop.body[1].fields.DEG = 72; }],
-  ['namib_hexagon', 'namib', 3, loop => { loop.fields.TIMES = 6; loop.body[1].fields.DEG = 60; }]
+  ['intro_square', 'patagonia', 1], ['paine_long_route', 'patagonia', 2], ['paine_rectangle', 'patagonia', 3],
+  ['sossusvlei_survey', 'namib', 1], ['namib_dune_turn', 'namib', 2], ['namib_hexagon', 'namib', 3]
 ];
 
-for (const [id, area, rank, solve] of geometry) {
-  test(id + ': drawn route is required and reachable from the starter', () => {
+for (const [id, area, rank] of geometry) {
+  test(id + ': example traces the complete route, and an open path fails', () => {
     const { mission, project, blocks } = fixture(id);
     assert.deepEqual([mission.area, mission.rank], [area, rank]);
     assert.ok(mission.hints[0]);
@@ -42,9 +38,8 @@ for (const [id, area, rank, solve] of geometry) {
       return passes(mission, project, stage);
     };
     assert.equal(passes(mission, project, stage), false);
-    assert.equal(draw(), !solve);
+    assert.equal(draw(), true);
     const loop = blocks.find(block => block.type === 'control_repeat');
-    if (solve) { solve(loop); assert.equal(draw(), true); }
     loop.fields.TIMES = 1;
     assert.equal(draw(), false, 'an open path must fail');
   });
@@ -56,16 +51,13 @@ const trials = [
   { light: 70, motion: 0 }
 ];
 const switches = [
-  ['yakushima_canopy', 1, null],
-  ['yakushima_visitor', 2, condition => { condition.fields.SENSOR = 'motion'; }],
-  ['yakushima_night', 3, condition => { condition.inputs.B.fields.SENSOR = 'light'; }]
+  ['yakushima_canopy', 1], ['yakushima_visitor', 2], ['yakushima_night', 3]
 ];
 
-for (const [id, rank, solve] of switches) {
+for (const [id, rank] of switches) {
   test(id + ': verifies observed sensor responses from the learner program', () => {
     const { mission, project, blocks } = fixture(id);
     assert.deepEqual([mission.area, mission.rank], ['yakushima', rank]);
-    const condition = blocks[1].body[0].inputs.COND;
     function experiment(sequence) {
       const stage = Object.assign(Object.create(DeviceStage.prototype), {
         sensors: { light: 70, motion: 0 }, outputs: { led: 0 }, lastSample: '', log: [], elapsed: 0
@@ -82,8 +74,6 @@ for (const [id, rank, solve] of switches) {
       run.return();
       return passes(mission, project, stage);
     }
-    assert.equal(experiment([...trials]), !solve);
-    if (solve) solve(condition);
     assert.equal(experiment(trials.slice(0, 1)), false, 'one observation cannot demonstrate a rule');
     assert.equal(experiment(trials), true);
     if (rank === 3) {
@@ -91,6 +81,8 @@ for (const [id, rank, solve] of switches) {
         const partial = trials.filter(item => item.light !== trial.light || item.motion !== trial.motion);
         assert.equal(experiment(partial), false, 'every combination must actually have been observed');
       }
+      blocks[1].body[0].inputs.COND.inputs.B.fields.SENSOR = 'motion';
+      assert.equal(experiment(trials), false, 'an incorrect condition must fail even after all inputs were tried');
     }
   });
 }

@@ -1,9 +1,9 @@
 export const LEVELS = {
-  1: { name: 'たね', button: '★1 たね' },
-  2: { name: 'め', button: '★2 め' },
-  3: { name: 'は', button: '★3 は' },
-  4: { name: 'つぼみ', button: '★4 つぼみ' },
-  5: { name: 'はな', button: '★5 はな' }
+  1: { name: 'たね', button: '道具 1' },
+  2: { name: 'め', button: '道具 2' },
+  3: { name: 'は', button: '道具 3' },
+  4: { name: 'つぼみ', button: '道具 4' },
+  5: { name: 'はな', button: '道具 5' }
 };
 
 export const UI = {

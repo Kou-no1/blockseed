@@ -1,11 +1,90 @@
-import { walkBlocks, clone } from '../core/project.js';
+import { createProject, walkBlocks, clone } from '../core/project.js';
 import { getDefinition, getLabel } from '../blocks/registry.js';
-import { missions } from './data/core.js';
+import { missions, legacyStarters } from './data/core.js';
 import { fieldMissions } from '../field/worlds.js';
-const missionData = missions.concat(fieldMissions);
+
+const blankGuides = {
+  intro_square: ['しかくい道を描いて、出発した場所にもどろう。', '「はじまり」を置き、ペンをおろそう。「くりかえす」の中に、すすむ・まわるを入れてみよう。'],
+  paine_long_route: ['1本が80歩のしかくい道を描こう。', 'ペンをおろし、同じ道を4回くり返そう。すすむ歩数は、ブロックの＋で変えられるよ。'],
+  paine_rectangle: ['40歩と80歩の道をかわりばんこに引いて、長方形をとじよう。', '短い辺・曲がる・長い辺・曲がる、の4つをひと組にしよう。何回くり返せばとじるかな？'],
+  sossusvlei_survey: ['長さが同じ3本の道で、正三角形をとじよう。', 'くり返しの中で、すすんでから曲がろう。1周で曲がる360度を、3つの角に分けよう。'],
+  namib_dune_turn: ['長さが同じ5本の道で、正五角形をとじよう。', '辺の数は5本。何回くり返すかな？ 曲がる角度は360を5でわるとわかるよ。'],
+  namib_hexagon: ['長さが同じ6本の道で、正六角形をとじよう。', 'すすむ・まわるをひと組にして、辺の数だけくり返そう。6回曲がると合計で360度だよ。'],
+  yakushima_canopy: ['暗くなったらライトをつけ、明るくなったら消す装置を組もう。', '「ずっと」の中の「もし・でなければ」に明るさセンサーを入れよう。LEDのオンとオフを別々の枝に置いて試そう。'],
+  yakushima_visitor: ['人がいるときだけライトをつけよう。いるときと、いないときを試そう。', '人感センサーで「もし・でなければ」の行き先を決めよう。「ずっと」でくり返せば、人が去ったあとも調べられるよ。'],
+  yakushima_night: ['暗くて人がいるときだけライトをつけよう。明るさと人を切りかえ、4通りとも試そう。', '「もし」の条件に「かつ」を置こう。「かつ」の左右に、明るさと人感のセンサーを1個ずつ入れよう。']
+};
+
+const fieldExamples = {
+  mulu: [['echo'], ['every', 'one'], ['beats', 'forward']],
+  galapagos: [['photo'], ['turtle'], ['turtle', 'new']],
+  uyuni: [['mirror'], ['3', 'mirror'], ['each', 'mirror']],
+  palau: [['sail'], ['reefLow', 'wait', 'sail'], ['reefLow', 'wait', 'sail', 'unload']],
+  aoraki: [['right'], ['2'], ['clear']],
+  mcmurdo: [['drive', 'sample'], ['sample', 'home'], ['5', 'eco', 'fast', 'sample']]
+};
+
+const observationHints = {
+  mulu: '手をたたいた拍と、こだまが返る拍を聞きくらべよう。',
+  galapagos: 'カメが画面に来たとき、アルバムに何枚の写真がふえるかな？',
+  uyuni: '岸から空の星までと、岸から水面の星までのきょりを見くらべよう。',
+  palau: 'スクリューが回ると、小舟がどちらに進むか見てみよう。',
+  aoraki: '望遠鏡が動く前と後で、ねらっている星の位置を見てみよう。',
+  mcmurdo: '旗に着いたときの観測車と、持ち帰る土の数を見てみよう。'
+};
+
+function practiceDifficulty(mission) {
+  if (['science_dark', 'tech_fan'].includes(mission.id) || mission.level === 1) return 1;
+  if (mission.id.startsWith('math5_polygon_') || ['science_motion', 'free_maze', 'tech_door'].includes(mission.id)) return 2;
+  return 3;
+}
+
+const examples = new Map();
+const missionData = [];
+const originals = new Map(missions.concat(fieldMissions).map(mission => [mission.id, mission]));
+for (const source of originals.values()) {
+  const difficulty = source.rank || practiceDifficulty(source);
+  const guide = blankGuides[source.id];
+  const example = { ...source, difficulty, buildFromBlank: false };
+  if (guide && difficulty > 1) {
+    example.goal = guide[0];
+    example.hints = [guide[1]];
+  }
+  if (source.stage === 'field') {
+    example.fieldProgram = fieldExamples[source.area][source.rank - 1];
+    if (source.rank === 1) example.hints = [observationHints[source.area]];
+  }
+  examples.set(example.id, example);
+  if (difficulty === 1) {
+    missionData.push(example);
+    if (!example.area) continue;
+  }
+  const duplicate = difficulty === 1;
+  missionData.push({ ...example, id: duplicate ? example.id + '_blank' : example.id,
+    baseId: example.id, difficulty: duplicate ? 2 : difficulty, buildFromBlank: true,
+    goal: guide ? guide[0] : source.goal, hints: guide ? [guide[1]] : source.hints,
+    starter: [], scripts: [], fieldProgram: [] });
+}
 
 export function listMissions() { return missionData.slice(); }
 export function getMission(id) { return missionData.find(function (mission) { return mission.id === id; }) || missionData[0]; }
+export function getExampleMission(id) { return examples.get(getMission(id).baseId || id) || null; }
+
+export function isLegacyStarter(project) {
+  const source = originals.get(project?.missionId);
+  if (!source || project.buildFromBlank || !getMission(source.id).buildFromBlank || project.stage !== source.stage) return false;
+  const historical = createProject(missionProjectData({ ...source, starter: legacyStarters.get(source.id) || source.starter }));
+  // Project identity and timestamps change when saving. Script and block IDs change on load.
+  // Preserve the IDs in variables, sprites and user-defined fields, which identify real data.
+  const program = scripts => JSON.stringify(scripts, function (key, value) {
+    if (key === 'id' && (Array.isArray(this.blocks) || this.type && this.inputs && this.fields)) return undefined;
+    return value;
+  });
+  if (program(project.scripts) !== program(historical.scripts)) return false;
+  // The app also filled in the current device's author and tool level automatically.
+  return ['fieldScene', 'fieldProgram', 'name', 'vars', 'lists', 'funcs', 'sprites', 'device', 'background']
+    .every(key => JSON.stringify(project[key]) === JSON.stringify(historical[key]));
+}
 
 function usedTypes(project) {
   const types = new Set();
@@ -119,7 +198,8 @@ export function evaluateMission(mission, project, stage, completed = false) {
 export function missionProjectData(mission) {
   return {
     name: mission.title, missionId: mission.id, level: mission.level, stage: mission.stage,
-    fieldScene: mission.stage === 'field' ? mission.id : undefined, fieldProgram: mission.fieldProgram,
+    fieldScene: mission.stage === 'field' ? mission.baseId || mission.id : undefined, fieldProgram: mission.fieldProgram,
+    buildFromBlank: Boolean(mission.buildFromBlank),
     scripts: mission.scripts ? clone(mission.scripts) : [{ id: 'mission-script-' + mission.id, x: 40, y: 40, blocks: clone(mission.starter || []) }],
     sprites: mission.sprites ? clone(mission.sprites) : undefined,
     background: mission.background || 'sky'

@@ -28,9 +28,10 @@ export class DragController {
   onDown(event) {
     const block = event.target.closest('.blk');
     if (this.state || !block || !['palette', 'editor'].includes(block.dataset.source) || event.target.closest('[data-no-drag]') || event.button > 0) return;
-    this.state = { block: block, id: block.dataset.id, type: block.dataset.type, source: block.dataset.source, pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false, ghost: null, target: null };
+    this.state = { block: block, captureTarget: event.target, id: block.dataset.id, type: block.dataset.type, source: block.dataset.source, pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false, ghost: null, target: null };
     this.state.hintTimer = setTimeout(function () { document.dispatchEvent(new CustomEvent('blockhint', { detail: block.getAttribute('aria-label') || '' })); }, 300);
-    block.setPointerCapture(event.pointerId);
+    // Keep an ordinary click on the exact branch the learner tapped.
+    event.target.setPointerCapture(event.pointerId);
     block.addEventListener('pointermove', this.onMoveBound = this.onMove.bind(this));
     block.addEventListener('pointerup', this.onUpBound = this.onUp.bind(this), { once: true });
     block.addEventListener('pointercancel', this.onCancelBound = this.cancel.bind(this), { once: true });
@@ -94,7 +95,7 @@ export class DragController {
     state.block.removeEventListener('pointermove', this.onMoveBound);
     state.block.removeEventListener('pointerup', this.onUpBound);
     state.block.removeEventListener('pointercancel', this.onCancelBound);
-    try { if (state.block.hasPointerCapture && state.block.hasPointerCapture(state.pointerId)) state.block.releasePointerCapture(state.pointerId); } catch (error) { /* pointer already released */ }
+    try { if (state.captureTarget.hasPointerCapture(state.pointerId)) state.captureTarget.releasePointerCapture(state.pointerId); } catch (error) { /* pointer already released */ }
     setTimeout(function () { if (state.block) delete state.block.dataset.dragged; }, 80);
     this.state = null;
   }

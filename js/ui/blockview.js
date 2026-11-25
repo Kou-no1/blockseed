@@ -87,9 +87,11 @@ export function renderBlock(block, options) {
   root.className = 'blk blk--' + definition.shape + ' blk-category-' + definition.category;
   root.dataset.id = block.id;
   root.dataset.type = block.type;
-  root.dataset.source = options.palette ? 'palette' : 'editor';
-  root.tabIndex = 0;
-  root.setAttribute('role', options.palette ? 'button' : 'group');
+  if (!options.readOnly) {
+    root.dataset.source = options.palette ? 'palette' : 'editor';
+    root.tabIndex = 0;
+  }
+  root.setAttribute('role', options.palette && !options.readOnly ? 'button' : 'group');
   if (!options.palette) root.setAttribute('aria-roledescription', 'プログラム ブロック');
   root.setAttribute('aria-label', plainLabel(definition, block, options.level));
   if (definition.unknown) root.classList.add('blk--unknown');
@@ -116,6 +118,7 @@ export function renderBlock(block, options) {
     root.appendChild(makeLabel(block, definition, options));
   }
 
+  if (options.readOnly) return root;
   root.addEventListener('click', function (event) {
     if (root.dataset.dragged === '1' || event.target.closest('[data-no-drag]')) return;
     event.stopPropagation();

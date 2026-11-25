@@ -20,7 +20,7 @@ export class ProjectStore {
     try {
       localStorage.setItem('bs.p.' + copy.id, JSON.stringify(copy));
       const index = this.list().filter(function (entry) { return entry.id !== copy.id; });
-      index.unshift({ id: copy.id, name: copy.name, author: copy.author, level: copy.level, stage: copy.stage, updatedAt: copy.updatedAt });
+      index.unshift({ id: copy.id, name: copy.name, author: copy.author, level: copy.level, stage: copy.stage, missionId: copy.missionId, updatedAt: copy.updatedAt });
       localStorage.setItem(INDEX_KEY, JSON.stringify(index.slice(0, 40)));
       return copy;
     } catch (error) {
@@ -31,17 +31,32 @@ export class ProjectStore {
 
   load(id) {
     const raw = readJSON('bs.p.' + id, null);
-    return raw ? normalizeProject(raw) : null;
+    if (!raw) return null;
+    try { return normalizeProject(raw); } catch { return null; }
   }
 
   latest() {
-    const first = this.list()[0];
-    return first ? this.load(first.id) : null;
+    for (const entry of this.list()) {
+      const project = this.load(entry.id);
+      if (project) return project;
+    }
+    return null;
+  }
+
+  findMission(mission) {
+    // Older index entries have no missionId. Read their projects as well.
+    for (const entry of this.list()) {
+      if (entry.missionId !== undefined && entry.missionId !== mission.id) continue;
+      const draft = this.load(entry.id);
+      if (draft?.missionId === mission.id && draft.stage === mission.stage &&
+          (draft.stage !== 'field' || draft.fieldScene === (mission.baseId || mission.id))) return draft;
+    }
+    return null;
   }
 
   list() {
     const value = readJSON(INDEX_KEY, []);
-    return Array.isArray(value) ? value : [];
+    return Array.isArray(value) ? value.filter(entry => typeof entry?.id === 'string') : [];
   }
 
   remove(id) {

@@ -8,11 +8,15 @@ const places = [
 
 const trail = places.flatMap(place => place.missions);
 export const stampTotal = trail.length;
+const repeats = places.map(place => place.missions[0] + '_blank');
+export const crownTotal = stampTotal + repeats.length;
 const progressKey = 'bs.expedition.v1';
+const repeatKey = 'bs.expedition.blank.';
 
 export function createCampaign(storage) {
   let count = 0;
   let saved = true;
+  const earned = new Set();
   if (storage === undefined) {
     try { storage = globalThis.localStorage; } catch { storage = null; }
   }
@@ -27,35 +31,61 @@ export function createCampaign(storage) {
     try { storage.setItem(progressKey, String(count)); saved = true; }
     catch { saved = false; }
   }
+  function hasRepeat(id) {
+    if (storage && saved) {
+      try {
+        if (storage.getItem(repeatKey + id) === 'earned') earned.add(id);
+        else earned.delete(id);
+      } catch { saved = false; }
+    }
+    return earned.has(id);
+  }
   return {
     info(id) {
-      const index = trail.indexOf(id);
+      const repeat = repeats.includes(id);
+      const base = repeat ? id.slice(0, -6) : id;
+      const index = trail.indexOf(base);
       if (index < 0) return null;
       refresh();
-      const place = places.find(place => place.missions.includes(id));
-      const rank = place.missions.indexOf(id) + 1;
+      const place = places.find(place => place.missions.includes(base));
+      const rank = place.missions.indexOf(base) + 1;
       const completed = Math.max(0, Math.min(place.missions.length, count - index + rank - 1));
-      return { area: place.area, rank, unlocked: index <= count, cleared: index < count,
+      return { area: place.area, rank, repeat, unlocked: repeat ? index < count : index <= count, cleared: index < count && (!repeat || hasRepeat(id)),
         completed, total: place.missions.length, nextId: trail[index + 1] || null, allDone: count === trail.length };
     },
-    firstOpen() { refresh(); return trail[Math.min(count, trail.length - 1)]; },
-    isUnlocked(id) { refresh(); return trail.indexOf(id) <= count; },
+    firstOpen() { refresh(); return trail[count] ?? null; },
+    lastCleared() { refresh(); return trail[count - 1] ?? null; },
+    remainingRepeat() { refresh(); return repeats.find(id => this.info(id).unlocked && !hasRepeat(id)) ?? null; },
+    isUnlocked(id) { return this.info(id)?.unlocked ?? true; },
     complete(id) {
       refresh();
+      if (repeats.includes(id)) {
+        if (!this.isUnlocked(id) || hasRepeat(id)) return false;
+        earned.add(id);
+        try { storage.setItem(repeatKey + id, 'earned'); } catch { saved = false; }
+        return true;
+      }
       if (count >= trail.length || trail[count] !== id) return false;
       count++;
       write();
       return true;
     },
-    reset() { count = 0; write(); },
+    reset() {
+      count = 0; write(); earned.clear();
+      try { for (const id of repeats) storage?.removeItem?.(repeatKey + id); } catch { saved = false; }
+    },
     get persisted() { return saved && Boolean(storage); }
   };
 }
 
 export const campaign = createCampaign();
 
+export function isMissionRestricted(mission, limit) {
+  return Boolean(limit && Math.max(mission.level, mission.difficulty || 1) > limit);
+}
+
 export function renderLandscape(missionId) {
-  const place = places.find(item => item.missions.includes(missionId)) || places[0];
+  const place = places.find(item => item.missions.includes(missionId) || item.missions[0] + '_blank' === missionId) || places[0];
   const landscape = document.getElementById('landscape');
   landscape.dataset.area = place.area;
   landscape.style.backgroundImage = fieldCover(place.area);
@@ -63,6 +93,15 @@ export function renderLandscape(missionId) {
     document.getElementById('place-' + key).textContent = place[key];
   }
   return place.area;
+}
+
+const crownIcon = '<svg class="mission-crown" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6.5l5.5 4.1L12 3.5l3.5 7.1L21 6.5l-2.2 10.8H5.2z"/><path d="M6 20.5h12" fill="none"/></svg>';
+
+export function renderStampLabel(node, text, cleared = false) {
+  if (node.textContent === text && node.classList.contains('has-crown') === cleared) return;
+  node.classList.toggle('has-crown', cleared);
+  node.textContent = text;
+  if (cleared) node.insertAdjacentHTML('afterbegin', crownIcon);
 }
 
 export function destinationMenu(getMission, start, lockedLevel, currentId) {
@@ -79,34 +118,46 @@ export function destinationMenu(getMission, start, lockedLevel, currentId) {
     title.textContent = place.title;
     const status = document.createElement('span');
     const first = campaign.info(place.missions[0]);
-    status.textContent = first.completed + ' / 3 クリア';
+    const repeatId = place.missions[0] + '_blank';
+    const choices = [place.missions[0], repeatId, ...place.missions.slice(1)];
+    const totalCleared = first.completed + Number(campaign.info(repeatId).cleared);
+    renderStampLabel(status, totalCleared + ' / 4 クリア', totalCleared === 4);
     head.append(photo, title, status);
     stop.appendChild(head);
     if (!first.unlocked) {
       const hint = document.createElement('p');
-      hint.textContent = '🔒 ' + places[index - 1].title + 'の お題を3つクリアすると開くよ。';
+      hint.textContent = '🔒 ' + places[index - 1].title + 'の3段階をクリアすると開くよ。';
       stop.appendChild(hint);
       const preview = document.createElement('details');
-      const summary = document.createElement('summary'); summary.textContent = '3つのお題をのぞく';
+      const summary = document.createElement('summary'); summary.textContent = '4つのお題をのぞく';
       const titles = document.createElement('ol');
-      for (const id of place.missions) {
-        const li = document.createElement('li'); li.textContent = getMission(id).title; titles.appendChild(li);
+      for (const id of choices) {
+        const li = document.createElement('li');
+        li.textContent = '★' + getMission(id).difficulty + ' ' + getMission(id).title + (id === repeatId ? '（白紙版）' : '');
+        titles.appendChild(li);
       }
       preview.append(summary, titles); stop.appendChild(preview);
     } else {
-      for (const id of place.missions) {
+      for (const id of choices) {
         const mission = getMission(id), state = campaign.info(id);
         const choice = document.createElement('button');
         choice.type = 'button';
         choice.dataset.mission = id;
-        const restricted = lockedLevel && mission.level > lockedLevel;
+        const restricted = isMissionRestricted(mission, lockedLevel);
         choice.disabled = !state.unlocked || Boolean(restricted);
-        const status = restricted ? '先生のレベル設定中' : state.cleared ? '✓ クリア' :
-          !state.unlocked ? '前のお題で開く' : currentId === id ? '挑戦中' : '挑戦する';
+        const status = state.cleared ? 'クリア済み' : restricted ? '先生のレベル設定中' :
+          !state.unlocked ? (state.repeat ? 'お手本で開く' : '前のお題で開く') : currentId === id ? '挑戦中' : '挑戦する';
         const label = document.createElement('span');
-        label.textContent = state.rank + '. ' + ['はじめの一歩', 'ちょうせん', 'うでだめし'][state.rank - 1] + '　' + mission.title;
+        label.textContent = '★' + mission.difficulty + ' ' + (state.repeat ? '同じお題を白紙から' : mission.title);
+        if (state.repeat) choice.setAttribute('aria-label', mission.title + '・★2 白紙から・' + status);
         const badge = document.createElement('small');
-        badge.textContent = status;
+        renderStampLabel(badge, status, state.cleared);
+        if (restricted && state.cleared) {
+          const limit = document.createElement('small');
+          limit.className = 'mission-limit';
+          limit.textContent = '先生のレベル設定中';
+          label.appendChild(limit);
+        }
         choice.append(label, badge);
         choice.addEventListener('click', () => start(mission));
         stop.appendChild(choice);

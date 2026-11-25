@@ -72,7 +72,8 @@ export class DialogManager {
     return new Promise(function (resolve) {
       manager.active = { resolve: resolve, dialog: dialog };
       requestAnimationFrame(function () {
-        const focus = dialog.querySelector('input, textarea, select, button');
+        if (manager.active?.dialog !== dialog) return;
+        const focus = options.initialFocus || dialog.querySelector('input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)');
         if (focus) focus.focus();
       });
     });

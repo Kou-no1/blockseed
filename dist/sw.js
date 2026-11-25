@@ -1,11 +1,11 @@
-const CACHE = 'blockseed-expeditions-v3-d5b3fc2f6c92';
-const FILES = ["./assets/namib.webp", "./assets/patagonia.webp", "./assets/yakushima.webp", "./boot.js", "./css/base.css", "./css/blocks.css", "./css/expedition.css", "./css/layout.css", "./css/levels.css", "./css/print.css", "./icon.svg", "./index.html", "./manifest.webmanifest", "./modules-baafc1ea45bd2302.pack", "./sw.js"];
+const CACHE = 'blockseed-expeditions-v3-adca7e3966e5';
+const FILES = ["./assets/namib.webp", "./assets/patagonia.webp", "./assets/yakushima.webp", "./boot.js", "./css/base.css", "./css/blocks.css", "./css/expedition.css", "./css/layout.css", "./css/levels.css", "./css/print.css", "./icon.svg", "./index.html", "./manifest.webmanifest", "./modules-0620c711d2f01280.pack", "./sw.js"];
 
 self.addEventListener('install', function (event) {
   const requests = FILES.map(file => new Request(new URL(file, self.location.href), { cache: 'reload' }));
   event.waitUntil(caches.open(CACHE).then(async cache => {
     await cache.addAll(requests);
-    const archive = await cache.match('./modules-baafc1ea45bd2302.pack');
+    const archive = await cache.match('./modules-0620c711d2f01280.pack');
     const modules = await new Response(archive.body.pipeThrough(new DecompressionStream('deflate'))).json();
     await Promise.all(Object.entries(modules).map(([name, source]) =>
       cache.put('./' + name, new Response(source, {headers: {'Content-Type': 'text/javascript; charset=utf-8'}}))));
